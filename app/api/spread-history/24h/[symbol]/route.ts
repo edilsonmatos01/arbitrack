@@ -13,54 +13,21 @@ try {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Cache em memória para dados recentes (15 minutos)
+// Cache em memória para dados recentes (5 minutos)
 const cache = new Map();
-const CACHE_DURATION = 15 * 60 * 1000; // 15 minutos
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
-// SOLUÇÃO DEFINITIVA: Função que força a conversão correta para São Paulo
-function formatDateTimeForSaoPaulo(date: Date): string {
-  // Força a conversão para São Paulo, independentemente do ambiente
+function formatDateTime(date: Date): string {
+  // Converter para fuso horário de São Paulo usando date-fns-tz
   const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
   return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
 }
 
-// SOLUÇÃO DEFINITIVA: Função que arredonda para intervalos de 30 minutos
 function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
   const minutes = Math.floor(date.getMinutes() / intervalMinutes) * intervalMinutes;
   const rounded = new Date(date);
   rounded.setMinutes(minutes, 0, 0);
   return rounded;
-}
-
-// SOLUÇÃO DEFINITIVA: Função que converte UTC para São Paulo
-function convertUTCToSaoPaulo(utcDate: Date): Date {
-  return toZonedTime(utcDate, 'America/Sao_Paulo');
-}
-
-// SOLUÇÃO DEFINITIVA: Função de fallback que força conversão manual se necessário
-function forceSaoPauloConversion(date: Date): Date {
-  try {
-    // Tentar conversão normal primeiro
-    const converted = toZonedTime(date, 'America/Sao_Paulo');
-    
-    // Verificar se a conversão parece correta (não está 3 horas atrás)
-    const originalHour = date.getUTCHours();
-    const convertedHour = converted.getHours();
-    
-    // Se a diferença for exatamente 3 horas, pode ser um problema do ambiente
-    if (Math.abs(originalHour - convertedHour) === 3) {
-      console.log('[WARNING] Possível problema de timezone detectado, usando fallback');
-      // Aplicar conversão manual: UTC-3 para São Paulo
-      const manualConversion = new Date(date.getTime() - (3 * 60 * 60 * 1000));
-      return manualConversion;
-    }
-    
-    return converted;
-  } catch (error) {
-    console.log('[WARNING] Erro na conversão automática, usando fallback manual');
-    // Fallback: converter manualmente UTC-3
-    return new Date(date.getTime() - (3 * 60 * 60 * 1000));
-  }
 }
 
 export async function GET(
@@ -69,9 +36,6 @@ export async function GET(
 ) {
   try {
     const symbol = params.symbol;
-    const { searchParams } = new URL(request.url);
-    const forceRefresh = searchParams.get('refresh') === 'true';
-    
     if (!symbol) {
       return NextResponse.json({ error: 'Symbol is required' }, { status: 400 });
     }
@@ -81,37 +45,33 @@ export async function GET(
       return NextResponse.json([]);
     }
 
-    // Verificar cache primeiro (a menos que forceRefresh seja true)
+    // Verificar cache primeiro
     const cacheKey = `spread-history-24h-${symbol}`;
     const cachedData = cache.get(cacheKey);
-    if (!forceRefresh && cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
+    if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (24h)`);
-      return NextResponse.json(cachedData.data, {
-        headers: {
-          'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800',
-          'X-Cache': 'HIT'
-        }
-      });
+      return NextResponse.json(cachedData.data);
     }
 
     console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
     const startTime = Date.now();
 
-    // SOLUÇÃO DEFINITIVA: Definir intervalo de 24 horas em UTC
+    // Define o intervalo de 24 horas
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    console.log(`[DEBUG] Buscando dados de ${start.toISOString()} até ${now.toISOString()}`);
-    console.log(`[DEBUG] Timezone atual: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+    console.log(`Buscando dados para ${symbol} de ${start.toISOString()} até ${now.toISOString()}`);
 
-    // Buscar todos os registros no intervalo UTC
+    // Buscar dados do banco
     const spreadHistory = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
         timestamp: {
           gte: start,
           lte: now
-        }
+        },
+        // Garante que só pegamos registros com spread válido
+        spread: { gt: 0 }
       },
       select: {
         timestamp: true,
@@ -122,64 +82,64 @@ export async function GET(
       }
     });
 
-    console.log(`[DEBUG] Encontrados ${spreadHistory.length} registros`);
+    console.log(`Encontrados ${spreadHistory.length} registros para ${symbol} em ${Date.now() - startTime}ms`);
 
     if (spreadHistory.length === 0) {
+      // Salvar resultado vazio no cache
+      cache.set(cacheKey, {
+        data: [],
+        timestamp: Date.now()
+      });
       return NextResponse.json([]);
     }
 
-    // SOLUÇÃO DEFINITIVA: Processar dados com conversão forçada para São Paulo
-    const groupedData = new Map<string, number>();
+    // Agrupar dados em intervalos de 30 minutos usando Map
+    const groupedData = new Map<string, { max: number; count: number }>();
     
-    // SOLUÇÃO DEFINITIVA: Converter datas para São Paulo com fallback
-    const nowInSaoPaulo = forceSaoPauloConversion(now);
-    const startInSaoPaulo = forceSaoPauloConversion(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    // Criar datas no fuso horário de São Paulo corretamente
+    const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
+    const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
     
-    console.log(`[DEBUG] Agora em São Paulo: ${formatDateTimeForSaoPaulo(nowInSaoPaulo)}`);
-    console.log(`[DEBUG] Início em São Paulo: ${formatDateTimeForSaoPaulo(startInSaoPaulo)}`);
-    
-    // CORREÇÃO: Não criar intervalos vazios - apenas processar dados existentes
-    // (igual à API Price Comparison que funciona)
+    let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
+    const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
 
-    // CORREÇÃO: Processar dados e criar intervalos apenas quando há dados
-    // (igual à API Price Comparison que funciona)
+    while (currentTime <= endTime) {
+      const timeKey = formatDateTime(currentTime);
+      if (!groupedData.has(timeKey)) {
+        groupedData.set(timeKey, {
+          max: 0,
+          count: 0
+        });
+      }
+      currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
+    }
+
+    // Processar dados em lotes para melhor performance
     const batchSize = 1000;
     for (let i = 0; i < spreadHistory.length; i += batchSize) {
       const batch = spreadHistory.slice(i, i + batchSize);
       
       for (const record of batch) {
-        // Converter timestamp do banco (UTC) para São Paulo com fallback
-        const recordInSaoPaulo = forceSaoPauloConversion(record.timestamp);
+        // Converter timestamp do banco para fuso de São Paulo usando date-fns-tz
+        const recordInSaoPaulo = toZonedTime(record.timestamp, 'America/Sao_Paulo');
         const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
-        const timeKey = formatDateTimeForSaoPaulo(roundedTime);
+        const timeKey = formatDateTime(roundedTime);
         
-        // Criar intervalo apenas se não existir
-        if (!groupedData.has(timeKey)) {
-          groupedData.set(timeKey, 0);
+        const group = groupedData.get(timeKey);
+        if (group) {
+          group.max = Math.max(group.max, record.spread);
+          group.count += 1;
         }
-        
-        const currentMax = groupedData.get(timeKey) || 0;
-        groupedData.set(timeKey, Math.max(currentMax, record.spread));
       }
     }
 
-    // Log para debug
-    console.log(`[DEBUG] Dados processados: ${spreadHistory.length} registros`);
-    console.log(`[DEBUG] Chaves de tempo criadas: ${groupedData.size}`);
-    
-    // Log das primeiras e últimas chaves de tempo
-    const timeKeys = Array.from(groupedData.keys()).sort();
-    if (timeKeys.length > 0) {
-      console.log(`[DEBUG] Primeira chave: ${timeKeys[0]}`);
-      console.log(`[DEBUG] Última chave: ${timeKeys[timeKeys.length - 1]}`);
-    }
-
-    // SOLUÇÃO DEFINITIVA: Converter para o formato esperado pelo gráfico
+    // Converte para o formato esperado pelo gráfico
     const formattedData = Array.from(groupedData.entries())
-      .map(([timestamp, spread]) => ({
+      .map(([timestamp, data]) => ({
         timestamp,
-        spread_percentage: spread
+        spread_percentage: data.max
       }))
+      .filter(item => item.spread_percentage > 0)
       .sort((a, b) => {
         const [dateA, timeA] = a.timestamp.split(' - ');
         const [dateB, timeB] = b.timestamp.split(' - ');
@@ -187,6 +147,7 @@ export async function GET(
         const [dayB, monthB] = dateB.split('/').map(Number);
         const [hourA, minuteA] = timeA.split(':').map(Number);
         const [hourB, minuteB] = timeB.split(':').map(Number);
+        
         if (monthA !== monthB) return monthA - monthB;
         if (dayA !== dayB) return dayA - dayB;
         if (hourA !== hourB) return hourA - hourB;
@@ -200,12 +161,7 @@ export async function GET(
     });
 
     console.log(`[API] Processamento concluído em ${Date.now() - startTime}ms`);
-    return NextResponse.json(formattedData, {
-      headers: {
-        'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800',
-        'X-Cache': 'MISS'
-      }
-    });
+    return NextResponse.json(formattedData);
   } catch (error) {
     console.error('Error fetching spread history:', error);
     return NextResponse.json([]);
