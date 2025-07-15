@@ -40,7 +40,7 @@ export default function StaticMetrics() {
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        // Buscar histórico de operações
+        // Buscar histórico de operações (sem filtro de data)
         const response = await fetch('/api/operation-history');
         const operations: OperationHistory[] = await response.json();
 

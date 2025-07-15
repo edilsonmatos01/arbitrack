@@ -72,7 +72,7 @@ export default function RealTimeMetrics() {
       
       // Buscar dados paralelos das APIs
       const [operationsRes, positionsRes] = await Promise.all([
-        fetch('/api/operation-history?filter=24h').catch(() => ({ json: () => [] })),
+        fetch('/api/operation-history').catch(() => ({ json: () => [] })), // Removido filtro 24h
         fetch('/api/positions').catch(() => ({ json: () => [] }))
       ]);
 
