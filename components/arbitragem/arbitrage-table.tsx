@@ -146,11 +146,52 @@ const OpportunityRow = React.memo(({ opportunity, livePrices, formatPrice, getSp
     const displayCompraPreco = formatPrice(rawCompraPreco);
     const displayVendaPreco = formatPrice(rawVendaPreco);
 
+    // Função para gerar URLs das exchanges
+    const getExchangeUrl = (exchange: string, symbol: string, action: 'buy' | 'sell') => {
+        const normalizedSymbol = symbol.replace('/', '_');
+        
+        if (exchange.toLowerCase().includes('gateio') || exchange.toLowerCase().includes('gate.io')) {
+            return `https://www.gate.io/pt-br/trade/${normalizedSymbol}`;
+        } else if (exchange.toLowerCase().includes('mexc')) {
+            // Para MEXC, usar futures se for venda (futures) ou spot se for compra (spot)
+            if (action === 'sell' && opportunity.sellAtMarketType === 'futures') {
+                return `https://futures.mexc.com/pt-PT/exchange/${normalizedSymbol}`;
+            } else {
+                return `https://www.mexc.com/pt-BR/exchange/${normalizedSymbol}`;
+            }
+        }
+        return '#';
+    };
+
     return (
         <tr className="border-b border-gray-700 hover:bg-gray-800">
             <td className="py-4 px-6 whitespace-nowrap text-sm font-semibold">{opportunity.symbol}</td>
-            <td className="py-4 px-6 whitespace-nowrap text-sm">{opportunity.compraExchange} <br /> <span className="font-bold">{displayCompraPreco}</span></td>
-            <td className="py-4 px-6 whitespace-nowrap text-sm">{opportunity.vendaExchange} <br /> <span className="font-bold">{displayVendaPreco}</span></td>
+            <td className="py-4 px-6 whitespace-nowrap text-sm">
+                {opportunity.compraExchange} <br /> 
+                <span className="font-bold">{displayCompraPreco}</span>
+                <br />
+                <a 
+                    href={getExchangeUrl(opportunity.compraExchange, opportunity.symbol, 'buy')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block mt-1 px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded transition-colors"
+                >
+                    Comprar
+                </a>
+            </td>
+            <td className="py-4 px-6 whitespace-nowrap text-sm">
+                {opportunity.vendaExchange} <br /> 
+                <span className="font-bold">{displayVendaPreco}</span>
+                <br />
+                <a 
+                    href={getExchangeUrl(opportunity.vendaExchange, opportunity.symbol, 'sell')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block mt-1 px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded transition-colors"
+                >
+                    Vender
+                </a>
+            </td>
             <td className={`py-4 px-6 whitespace-nowrap text-sm font-bold ${getSpreadDisplayClass(spreadValue)}`}>
               {new Decimal(spreadValue).toFixed(2)}%
             </td>
@@ -166,7 +207,6 @@ const OpportunityRow = React.memo(({ opportunity, livePrices, formatPrice, getSp
                 <span className="hidden sm:inline">Cadastrar</span>
               </button>
             </td>
-
         </tr>
     );
 });
@@ -1106,6 +1146,26 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                     </div>
                   </div>
 
+                  {/* Botões de Ação */}
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <a 
+                      href={`https://www.gate.io/pt-br/trade/${position.symbol.replace('/', '_')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-2 px-3 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded transition-colors text-center"
+                    >
+                      Comprar Spot
+                    </a>
+                    <a 
+                      href={`https://futures.mexc.com/pt-PT/exchange/${position.symbol.replace('/', '_')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-2 px-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded transition-colors text-center"
+                    >
+                      Vender Futures
+                    </a>
+                  </div>
+                  
                   {/* Botão Finalizar */}
                   <button
                     onClick={() => handleFinalizePosition(position.id)}
