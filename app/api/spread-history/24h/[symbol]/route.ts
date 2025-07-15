@@ -16,6 +16,12 @@ export const revalidate = 0;
 const cache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
+// Função para limpar cache
+function clearCache() {
+  cache.clear();
+  console.log('[CACHE] Cache limpo');
+}
+
 function formatDateTime(date: Date): string {
   // Converter para fuso horário de São Paulo corretamente
   return date.toLocaleString('pt-BR', {
@@ -53,6 +59,10 @@ export async function GET(
     // Verificar cache primeiro
     const cacheKey = `spread-history-24h-${symbol}`;
     const cachedData = cache.get(cacheKey);
+    
+    // Limpar cache para forçar nova geração (temporário)
+    clearCache();
+    
     if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (24h)`);
       return NextResponse.json(cachedData.data);
