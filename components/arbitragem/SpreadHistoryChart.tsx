@@ -25,19 +25,6 @@ const formatToBrazilTime = (timestamp: string) => {
   return timestamp;
 };
 
-// Tooltip customizado
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="p-3 bg-gray-800 border border-gray-700 rounded-md shadow-lg">
-        <p className="label text-white font-semibold mb-2">{`${label}`}</p>
-        <p className="intro text-green-400">{`Spread (%): ${payload[0].value.toFixed(2)}`}</p>
-      </div>
-    );
-  }
-  return null;
-};
-
 export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) {
   const [data, setData] = useState<SpreadData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,12 +40,7 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
           throw new Error('Falha ao buscar o histórico de spread.');
         }
         const rawData: SpreadData[] = await response.json();
-        // Aplica a função padronizada de formatação
-        const convertedData = rawData.map(item => ({
-          ...item,
-          timestamp: formatToBrazilTime(item.timestamp)
-        }));
-        setData(convertedData);
+        setData(rawData); // Mantém o timestamp original (UTC ou ISO)
       } catch (err: any) {
         setError(err.message || 'Ocorreu um erro.');
       } finally {
@@ -116,6 +98,7 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
             angle={-45}
             textAnchor="end"
             height={60}
+            tickFormatter={formatToBrazilTime}
           />
           <YAxis
             stroke="#9CA3AF"
@@ -123,7 +106,18 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
             tickFormatter={(value) => `${value.toFixed(2)}%`}
             domain={['dataMin', 'dataMax']}
           />
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip
+            content={({ active, payload, label }) =>
+              active && payload && payload.length ? (
+                <div className="p-3 bg-gray-800 border border-gray-700 rounded-md shadow-lg">
+                  <p className="label text-white font-semibold mb-2">{formatToBrazilTime(label as string)}</p>
+                  <p className="intro text-green-400">
+                    {`Spread (%): ${typeof payload[0].value === 'number' ? payload[0].value.toFixed(2) : payload[0].value}`}
+                  </p>
+                </div>
+              ) : null
+            }
+          />
           <Line
             type="linear"
             dataKey="spread"
