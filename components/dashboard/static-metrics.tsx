@@ -50,7 +50,7 @@ export default function StaticMetrics() {
       try {
         // Buscar dados em paralelo
         const [operationsRes, configsRes] = await Promise.all([
-          fetch('/api/operation-history'),
+          fetch('/api/operation-history?filter=all'),
           fetch('/api/config/api-keys')
         ]);
 
