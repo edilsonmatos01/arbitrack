@@ -9,7 +9,7 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Removido output: 'standalone' para usar Next.js padrão
+  output: 'standalone',
   experimental: {
     serverComponentsExternalPackages: ['ws', 'ccxt']
   },
