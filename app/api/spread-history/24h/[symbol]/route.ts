@@ -85,6 +85,12 @@ export async function GET(
     });
 
     console.log(`[API] Encontrados ${spreadHistory.length} registros em ${Date.now() - startTime}ms`);
+    
+    // Log detalhado dos dados encontrados
+    if (spreadHistory.length > 0) {
+      console.log(`[DEBUG] Primeiro registro:`, spreadHistory[0]);
+      console.log(`[DEBUG] Último registro:`, spreadHistory[spreadHistory.length - 1]);
+    }
 
     // Otimização: processar dados em lotes
     const groupedData = new Map<string, number>();
@@ -93,8 +99,15 @@ export async function GET(
     const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
     const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
     
+    console.log(`[DEBUG] now (UTC):`, now.toISOString());
+    console.log(`[DEBUG] nowInSaoPaulo:`, nowInSaoPaulo.toString());
+    console.log(`[DEBUG] startInSaoPaulo:`, startInSaoPaulo.toString());
+    
     let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
     const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
+    
+    console.log(`[DEBUG] currentTime:`, currentTime.toString());
+    console.log(`[DEBUG] endTime:`, endTime.toString());
 
     // Inicializar intervalos
     while (currentTime <= endTime) {
@@ -117,6 +130,15 @@ export async function GET(
         const timeKey = formatDateTime(roundedTime);
         const currentMax = groupedData.get(timeKey) || 0;
         groupedData.set(timeKey, Math.max(currentMax, record.spread));
+        
+        // Log dos últimos registros processados
+        if (record === spreadHistory[spreadHistory.length - 1]) {
+          console.log(`[DEBUG] Último registro processado:`);
+          console.log(`  - Timestamp original:`, record.timestamp);
+          console.log(`  - Timestamp em SP:`, recordInSaoPaulo.toString());
+          console.log(`  - Timestamp arredondado:`, roundedTime.toString());
+          console.log(`  - TimeKey final:`, timeKey);
+        }
       }
     }
 
