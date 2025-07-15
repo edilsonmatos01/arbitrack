@@ -73,9 +73,7 @@ export async function GET(
         timestamp: {
           gte: start,
           lte: now
-        },
-        // Garantir que só pegamos registros com spread válido
-        spread: { gt: 0 }
+        }
       },
       select: {
         timestamp: true,
