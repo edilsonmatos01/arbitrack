@@ -9,7 +9,7 @@ interface SpreadHistoryChartProps {
 
 interface SpreadData {
   timestamp: string;
-  spread: number;
+  spread_percentage: number;
 }
 
 // Componente de Tooltip customizado para formatar os valores
@@ -35,7 +35,8 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/spread-history?symbol=${encodeURIComponent(symbol)}`);
+        // Usar a API corrigida com timezone
+        const response = await fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`);
         if (!response.ok) {
           throw new Error('Falha ao buscar o histórico de spread.');
         }
@@ -111,7 +112,7 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
           <Tooltip content={<CustomTooltip />} />
           <Line
             type="linear"
-            dataKey="spread"
+            dataKey="spread_percentage"
             stroke="#10B981"
             strokeWidth={2}
             dot={{ r: 3, fill: '#10B981' }}

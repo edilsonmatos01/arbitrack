@@ -36,6 +36,9 @@ export async function GET(
 ) {
   try {
     const symbol = params.symbol;
+    const { searchParams } = new URL(request.url);
+    const forceRefresh = searchParams.get('refresh') === 'true';
+    
     if (!symbol) {
       return NextResponse.json({ error: 'Symbol is required' }, { status: 400 });
     }
@@ -45,10 +48,10 @@ export async function GET(
       return NextResponse.json([]);
     }
 
-    // Verificar cache primeiro
+    // Verificar cache primeiro (a menos que forceRefresh seja true)
     const cacheKey = `spread-history-24h-${symbol}`;
     const cachedData = cache.get(cacheKey);
-    if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
+    if (!forceRefresh && cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (24h)`);
       return NextResponse.json(cachedData.data);
     }
@@ -61,6 +64,7 @@ export async function GET(
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     console.log(`[DEBUG] Buscando dados de ${start.toISOString()} até ${now.toISOString()}`);
+    console.log(`[DEBUG] Timezone atual: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
 
     // Buscar todos os registros no intervalo UTC
     const spreadHistory = await prisma.spreadHistory.findMany({
@@ -93,6 +97,9 @@ export async function GET(
     const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
     const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
     
+    console.log(`[DEBUG] Agora em São Paulo: ${formatDateTime(nowInSaoPaulo)}`);
+    console.log(`[DEBUG] Início em São Paulo: ${formatDateTime(startInSaoPaulo)}`);
+    
     let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
     const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
     
@@ -121,6 +128,13 @@ export async function GET(
     console.log(`[DEBUG] Intervalo: ${start.toISOString()} até ${now.toISOString()}`);
     console.log(`[DEBUG] Último registro: ${spreadHistory[spreadHistory.length - 1]?.timestamp.toISOString()}`);
     console.log(`[DEBUG] Chaves de tempo criadas: ${groupedData.size}`);
+    
+    // Log das primeiras e últimas chaves de tempo
+    const timeKeys = Array.from(groupedData.keys()).sort();
+    if (timeKeys.length > 0) {
+      console.log(`[DEBUG] Primeira chave: ${timeKeys[0]}`);
+      console.log(`[DEBUG] Última chave: ${timeKeys[timeKeys.length - 1]}`);
+    }
 
     // Converte para o formato esperado pelo gráfico e ordena
     const formattedData = Array.from(groupedData.entries())
