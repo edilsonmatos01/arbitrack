@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { toZonedTime, format } from 'date-fns-tz';
 
 let prisma: PrismaClient | null = null;
 
@@ -23,15 +24,9 @@ function clearCache() {
 }
 
 function formatDateTime(date: Date): string {
-  // Converter para fuso horário de São Paulo corretamente
-  return date.toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).replace(', ', ' - ');
+  // Converter para fuso horário de São Paulo usando date-fns-tz
+  const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
+  return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
 }
 
 function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
@@ -59,10 +54,6 @@ export async function GET(
     // Verificar cache primeiro
     const cacheKey = `price-comparison-${symbol}`;
     const cachedData = cache.get(cacheKey);
-    
-    // Limpar cache para forçar nova geração (temporário)
-    clearCache();
-    
     if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (price-comparison)`);
       return NextResponse.json(cachedData.data);
@@ -116,8 +107,8 @@ export async function GET(
       futures: { sum: number; count: number }; 
     }>();
     
-    // Criar datas no fuso horário de São Paulo corretamente
-    const nowInSaoPaulo = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    // Criar datas no fuso horário de São Paulo usando date-fns-tz
+    const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
     const startInSaoPaulo = new Date(nowInSaoPaulo.getTime() - 24 * 60 * 60 * 1000);
     
     let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
@@ -140,8 +131,8 @@ export async function GET(
       const batch = priceHistory.slice(i, i + batchSize);
       
       for (const record of batch) {
-        // Converter timestamp do banco para fuso de São Paulo corretamente
-        const recordInSaoPaulo = new Date(record.timestamp.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        // Converter timestamp do banco para fuso de São Paulo usando date-fns-tz
+        const recordInSaoPaulo = toZonedTime(record.timestamp, 'America/Sao_Paulo');
         const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
         const timeKey = formatDateTime(roundedTime);
         
