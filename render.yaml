@@ -16,7 +16,7 @@ services:
   name: arbitragem-web
   env: node
   plan: free
-  buildCommand: npm install && npm run build
+  buildCommand: npm install && npx prisma generate && npm run build:next
   startCommand: npm start
   envVars:
     - key: DATABASE_URL
@@ -29,12 +29,14 @@ services:
       value: 10000
     - key: HOSTNAME
       value: 0.0.0.0
+    - key: NODE_ENV
+      value: production
 
 - type: worker
   name: arbitragem-worker
   env: node
   plan: free
-  buildCommand: npm install && npm run build:worker
+  buildCommand: npm install && npx prisma generate && npm run build:worker
   startCommand: npm run start:worker
   envVars:
     - key: DATABASE_URL
