@@ -29,6 +29,19 @@ function formatDateTime(date: Date): string {
   return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
 }
 
+// Função alternativa para debug
+function formatDateTimeDebug(date: Date): string {
+  // Usar toLocaleString diretamente para comparar
+  return date.toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).replace(', ', ' - ');
+}
+
 function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
   const minutes = Math.floor(date.getMinutes() / intervalMinutes) * intervalMinutes;
   const rounded = new Date(date);
@@ -137,7 +150,8 @@ export async function GET(
           console.log(`  - Timestamp original:`, record.timestamp);
           console.log(`  - Timestamp em SP:`, recordInSaoPaulo.toString());
           console.log(`  - Timestamp arredondado:`, roundedTime.toString());
-          console.log(`  - TimeKey final:`, timeKey);
+          console.log(`  - TimeKey final (date-fns-tz):`, timeKey);
+          console.log(`  - TimeKey debug (toLocaleString):`, formatDateTimeDebug(roundedTime));
         }
       }
     }
