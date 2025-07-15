@@ -16,7 +16,7 @@ services:
   name: robo-de-arbitragem
   env: node
   plan: free
-  buildCommand: npm install && npx prisma generate && npm run build:next
+  buildCommand: npm install && npx prisma generate && npm run build
   startCommand: npm start
   envVars:
     - key: DATABASE_URL
@@ -58,7 +58,7 @@ services:
   name: robo-de-arbitragem-tracker
   env: node
   plan: free
-  buildCommand: npm install && npx prisma generate && npm run build:next
+  buildCommand: npm install && npx prisma generate && npm run build
   startCommand: npm start
   envVars:
     - key: DATABASE_URL
@@ -80,8 +80,8 @@ services:
   name: arbitragem-render
   env: node
   plan: free
-  buildCommand: npm install && npx prisma generate
-  startCommand: node scripts/background-worker.ts
+  buildCommand: npm install && npx prisma generate && npm run build:worker
+  startCommand: npm run start:worker
   schedule: "*/5 * * * *"
   envVars:
     - key: DATABASE_URL

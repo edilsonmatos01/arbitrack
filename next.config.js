@@ -13,6 +13,9 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['ws', 'ccxt']
   },
+  // Configurações para produção
+  poweredByHeader: false,
+  compress: true,
   images: {
     remotePatterns: [
       {
