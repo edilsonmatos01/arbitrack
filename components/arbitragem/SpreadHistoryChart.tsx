@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface SpreadHistoryChartProps {
@@ -11,6 +11,8 @@ interface SpreadData {
   timestamp: string;
   spread_percentage: number;
 }
+
+
 
 // Componente de Tooltip customizado para formatar os valores
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -30,6 +32,23 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  
+  // 🚀 MELHORIA: Memoização de dados processados
+  const processedData = useMemo(() => {
+    if (!data.length) return [];
+    
+    // Dados de spread (formato atual)
+    return data.map(item => ({
+      ...item,
+      value: item.spread_percentage,
+      label: 'Spread (%)'
+    }));
+  }, [data]);
+
+  // 🚀 MELHORIA 3: Atualização direta (sem debounce desnecessário)
+  const updateData = useCallback((newData: SpreadData[]) => {
+    setData(newData);
+  }, []);
 
   const fetchData = useCallback(async (isRetry = false) => {
     if (isRetry) {
@@ -60,8 +79,8 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
       
       const rawData: SpreadData[] = await response.json();
       
-      // A API já retorna o timestamp formatado, não precisamos reformatar
-      setData(rawData);
+      // Atualizar dados diretamente
+      updateData(rawData);
       setRetryCount(0); // Reset retry count on success
     } catch (err: any) {
       console.error('Erro ao buscar dados:', err);
@@ -69,7 +88,7 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
     } finally {
       setIsLoading(false);
     }
-  }, [symbol, retryCount]);
+  }, [symbol, retryCount, updateData]);
 
   useEffect(() => {
     if (symbol) {
@@ -82,6 +101,19 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
     setRetryCount(0);
     fetchData();
   };
+
+  // Memoização das opções do gráfico
+  const chartOptions = useMemo(() => ({
+    margin: {
+      top: 5,
+      right: 30,
+      left: 20,
+      bottom: 5,
+    },
+    yAxisDomain: ['dataMin', 'dataMax'],
+    yAxisTickFormatter: (value: number) => `${value.toFixed(2)}%`,
+    yAxisTitle: 'Spread (%)'
+  }), []);
 
   if (isLoading) {
     return (
@@ -119,46 +151,48 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
   }
 
   return (
-    <div className="w-full h-[300px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={data}
-          margin={{
-            top: 5,
-            right: 30,
-            left: 20,
-            bottom: 5,
-          }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-          <XAxis
-            dataKey="timestamp"
-            stroke="#9CA3AF"
-            tick={{ fill: '#9CA3AF' }}
-            tickFormatter={(value) => value.split(' - ')[1]}
-            interval="preserveStartEnd"
-            angle={-45}
-            textAnchor="end"
-            height={60}
-          />
-          <YAxis
-            stroke="#9CA3AF"
-            tick={{ fill: '#9CA3AF' }}
-            tickFormatter={(value) => `${value.toFixed(2)}%`}
-            domain={['dataMin', 'dataMax']}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <Line
-            type="linear"
-            dataKey="spread_percentage"
-            stroke="#10B981"
-            strokeWidth={2}
-            dot={{ r: 3, fill: '#10B981' }}
-            activeDot={{ r: 6 }}
-            connectNulls={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+    <div className="w-full">
+      {/* Título do gráfico */}
+      <div className="mb-4 p-2 bg-gray-800 rounded-lg">
+        <h3 className="text-white font-semibold">{symbol}</h3>
+      </div>
+
+      <div className="h-[300px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart
+            data={processedData}
+            margin={chartOptions.margin}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+            <XAxis
+              dataKey="timestamp"
+              stroke="#9CA3AF"
+              tick={{ fill: '#9CA3AF' }}
+              tickFormatter={(value) => value.split(' - ')[1]}
+              interval="preserveStartEnd"
+              angle={-45}
+              textAnchor="end"
+              height={60}
+            />
+            <YAxis
+              stroke="#9CA3AF"
+              tick={{ fill: '#9CA3AF' }}
+              tickFormatter={chartOptions.yAxisTickFormatter}
+              domain={chartOptions.yAxisDomain}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Line
+              type="linear"
+              dataKey="value"
+              stroke="#10B981"
+              strokeWidth={2}
+              dot={{ r: 3, fill: "#10B981" }}
+              activeDot={{ r: 6 }}
+              connectNulls={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 } 
