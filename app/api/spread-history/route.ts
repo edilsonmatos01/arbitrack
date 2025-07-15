@@ -8,13 +8,9 @@ export const revalidate = 0;
 const cache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
-function adjustToUTC(date: Date): Date {
-  return new Date(date.getTime() + date.getTimezoneOffset() * 60000);
-}
-
 function formatDateTime(date: Date): string {
-  const utcDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000);
-  return utcDate.toLocaleString('pt-BR', {
+  // Converter para fuso horário de São Paulo corretamente
+  return date.toLocaleString('pt-BR', {
     timeZone: 'America/Sao_Paulo',
     day: '2-digit',
     month: '2-digit',
@@ -46,16 +42,16 @@ export async function GET(req: NextRequest) {
 
     const thirtyMinutesInMs = 30 * 60 * 1000;
     const now = new Date();
-    const utcNow = adjustToUTC(now);
-    const utcStart = new Date(utcNow.getTime() - 24 * 60 * 60 * 1000);
+    // Usar UTC para consulta no banco, mas converter para São Paulo na exibição
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     // Otimização: usar select específico e limitar dados
     const rawHistory = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
         timestamp: {
-          gte: utcStart,
-          lte: utcNow
+          gte: start,
+          lte: now
         }
       },
       select: {
@@ -77,8 +73,9 @@ export async function GET(req: NextRequest) {
       const batch = rawHistory.slice(i, i + batchSize);
       
       for (const record of batch) {
-        const localTime = new Date(record.timestamp);
-        const bucketTimestamp = Math.floor(localTime.getTime() / thirtyMinutesInMs) * thirtyMinutesInMs;
+        // Converter timestamp do banco para fuso de São Paulo
+        const saoPauloTime = new Date(record.timestamp.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        const bucketTimestamp = Math.floor(saoPauloTime.getTime() / thirtyMinutesInMs) * thirtyMinutesInMs;
         
         if (!aggregatedData[bucketTimestamp] || record.spread > aggregatedData[bucketTimestamp].maxSpread) {
           aggregatedData[bucketTimestamp] = {

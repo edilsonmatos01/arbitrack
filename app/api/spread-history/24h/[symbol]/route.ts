@@ -17,6 +17,7 @@ const cache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
 function formatDateTime(date: Date): string {
+  // Converter para fuso horário de São Paulo corretamente
   return date.toLocaleString('pt-BR', {
     timeZone: 'America/Sao_Paulo',
     day: '2-digit',
@@ -86,8 +87,13 @@ export async function GET(
 
     // Otimização: processar dados em lotes
     const groupedData = new Map<string, number>();
-    let currentTime = roundToNearestInterval(start, 30);
-    const endTime = roundToNearestInterval(now, 30);
+    
+    // Inicializar intervalos usando fuso de São Paulo
+    const saoPauloNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const saoPauloStart = new Date(saoPauloNow.getTime() - 24 * 60 * 60 * 1000);
+    
+    let currentTime = roundToNearestInterval(saoPauloStart, 30);
+    const endTime = roundToNearestInterval(saoPauloNow, 30);
 
     // Inicializar intervalos
     while (currentTime <= endTime) {
@@ -104,8 +110,10 @@ export async function GET(
       const batch = spreadHistory.slice(i, i + batchSize);
       
       for (const record of batch) {
-        const utcTime = roundToNearestInterval(new Date(record.timestamp), 30);
-        const timeKey = formatDateTime(utcTime);
+        // Converter timestamp do banco para fuso de São Paulo
+        const saoPauloTime = new Date(record.timestamp.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        const roundedTime = roundToNearestInterval(saoPauloTime, 30);
+        const timeKey = formatDateTime(roundedTime);
         const currentMax = groupedData.get(timeKey) || 0;
         groupedData.set(timeKey, Math.max(currentMax, record.spread));
       }
