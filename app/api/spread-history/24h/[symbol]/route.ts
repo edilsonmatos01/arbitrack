@@ -138,28 +138,25 @@ export async function GET(
     console.log(`[DEBUG] Agora em São Paulo: ${formatDateTimeForSaoPaulo(nowInSaoPaulo)}`);
     console.log(`[DEBUG] Início em São Paulo: ${formatDateTimeForSaoPaulo(startInSaoPaulo)}`);
     
-    // SOLUÇÃO DEFINITIVA: Criar intervalos de 30 minutos em São Paulo
-    let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
-    const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
+    // CORREÇÃO: Não criar intervalos vazios - apenas processar dados existentes
+    // (igual à API Price Comparison que funciona)
 
-    while (currentTime <= endTime) {
-      const timeKey = formatDateTimeForSaoPaulo(currentTime);
-      if (!groupedData.has(timeKey)) {
-        groupedData.set(timeKey, 0);
-      }
-      currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
-    }
-
-    // SOLUÇÃO DEFINITIVA: Processar dados com conversão forçada
+    // CORREÇÃO: Processar dados e criar intervalos apenas quando há dados
+    // (igual à API Price Comparison que funciona)
     const batchSize = 1000;
     for (let i = 0; i < spreadHistory.length; i += batchSize) {
       const batch = spreadHistory.slice(i, i + batchSize);
       
       for (const record of batch) {
-        // SOLUÇÃO DEFINITIVA: Converter timestamp do banco (UTC) para São Paulo com fallback
+        // Converter timestamp do banco (UTC) para São Paulo com fallback
         const recordInSaoPaulo = forceSaoPauloConversion(record.timestamp);
         const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
         const timeKey = formatDateTimeForSaoPaulo(roundedTime);
+        
+        // Criar intervalo apenas se não existir
+        if (!groupedData.has(timeKey)) {
+          groupedData.set(timeKey, 0);
+        }
         
         const currentMax = groupedData.get(timeKey) || 0;
         groupedData.set(timeKey, Math.max(currentMax, record.spread));
