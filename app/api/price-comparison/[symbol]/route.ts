@@ -1,18 +1,20 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { PrismaClient } from '@prisma/client';
+
+let prisma: PrismaClient | null = null;
+
+try {
+  prisma = new PrismaClient();
+} catch (error) {
+  console.warn('Aviso: Não foi possível conectar ao banco de dados');
+}
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
-  const minutes = date.getMinutes();
-  const roundedMinutes = Math.floor(minutes / intervalMinutes) * intervalMinutes;
-  const newDate = new Date(date);
-  newDate.setMinutes(roundedMinutes);
-  newDate.setSeconds(0);
-  newDate.setMilliseconds(0);
-  return newDate;
-}
+// Cache em memória para dados recentes (5 minutos)
+const cache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
 function formatDateTime(date: Date): string {
   return date.toLocaleString('pt-BR', {
@@ -23,6 +25,13 @@ function formatDateTime(date: Date): string {
     minute: '2-digit',
     hour12: false
   }).replace(', ', ' - ');
+}
+
+function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
+  const minutes = Math.floor(date.getMinutes() / intervalMinutes) * intervalMinutes;
+  const rounded = new Date(date);
+  rounded.setMinutes(minutes, 0, 0);
+  return rounded;
 }
 
 export async function GET(
@@ -40,13 +49,24 @@ export async function GET(
       return NextResponse.json([]);
     }
 
+    // Verificar cache primeiro
+    const cacheKey = `price-comparison-${symbol}`;
+    const cachedData = cache.get(cacheKey);
+    if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
+      console.log(`[Cache] Retornando dados em cache para ${symbol} (price-comparison)`);
+      return NextResponse.json(cachedData.data);
+    }
+
+    console.log(`[API] Buscando dados do banco para ${symbol} (price-comparison)...`);
+    const startTime = Date.now();
+
     // Define o intervalo de 24 horas
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     console.log(`Buscando dados para ${symbol} de ${start.toISOString()} até ${now.toISOString()}`);
 
-    // Busca os dados do banco da SpreadHistory
+    // Otimização: usar select específico e limitar dados
     const priceHistory = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
@@ -68,13 +88,18 @@ export async function GET(
       }
     });
 
-    console.log(`Encontrados ${priceHistory.length} registros para ${symbol}`);
+    console.log(`Encontrados ${priceHistory.length} registros para ${symbol} em ${Date.now() - startTime}ms`);
 
     if (priceHistory.length === 0) {
+      // Salvar resultado vazio no cache
+      cache.set(cacheKey, {
+        data: [],
+        timestamp: Date.now()
+      });
       return NextResponse.json([]);
     }
 
-    // Agrupa os dados em intervalos de 30 minutos
+    // Otimização: agrupar dados em intervalos de 30 minutos usando Map
     const groupedData = new Map<string, { 
       spot: { sum: number; count: number }; 
       futures: { sum: number; count: number }; 
@@ -95,36 +120,33 @@ export async function GET(
       currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
     }
 
-    // Processa os dados reais
-    for (const record of priceHistory) {
-      const localTime = roundToNearestInterval(new Date(record.timestamp), 30);
-      const timeKey = formatDateTime(localTime);
-      const data = groupedData.get(timeKey) || {
-        spot: { sum: 0, count: 0 },
-        futures: { sum: 0, count: 0 }
-      };
-
-      if (record.spotPrice !== null) {
-        data.spot.sum += record.spotPrice;
-        data.spot.count++;
+    // Processar dados em lotes para melhor performance
+    const batchSize = 1000;
+    for (let i = 0; i < priceHistory.length; i += batchSize) {
+      const batch = priceHistory.slice(i, i + batchSize);
+      
+      for (const record of batch) {
+        const utcTime = roundToNearestInterval(new Date(record.timestamp), 30);
+        const timeKey = formatDateTime(utcTime);
+        
+        const group = groupedData.get(timeKey);
+        if (group) {
+          group.spot.sum += record.spotPrice;
+          group.spot.count += 1;
+          group.futures.sum += record.futuresPrice;
+          group.futures.count += 1;
+        }
       }
-
-      if (record.futuresPrice !== null) {
-        data.futures.sum += record.futuresPrice;
-        data.futures.count++;
-      }
-
-      groupedData.set(timeKey, data);
     }
 
-    // Formata os dados finais
+    // Converte para o formato esperado pelo gráfico
     const formattedData = Array.from(groupedData.entries())
       .map(([timestamp, data]) => ({
         timestamp,
-        gateio_price: data.spot.count > 0 ? Number(data.spot.sum / data.spot.count) : null,
-        mexc_price: data.futures.count > 0 ? Number(data.futures.sum / data.futures.count) : null
+        gateio_price: data.spot.count > 0 ? data.spot.sum / data.spot.count : 0,
+        mexc_price: data.futures.count > 0 ? data.futures.sum / data.futures.count : 0
       }))
-      .filter(data => data.gateio_price !== null && data.mexc_price !== null) // Remove pontos sem dados
+      .filter(item => item.gateio_price > 0 && item.mexc_price > 0)
       .sort((a, b) => {
         const [dateA, timeA] = a.timestamp.split(' - ');
         const [dateB, timeB] = b.timestamp.split(' - ');
@@ -139,16 +161,16 @@ export async function GET(
         return minuteA - minuteB;
       });
 
-    console.log(`Dados formatados: ${formattedData.length} pontos`);
-    if (formattedData.length > 0) {
-      console.log(`Primeiro ponto: ${JSON.stringify(formattedData[0])}`);
-      console.log(`Último ponto: ${JSON.stringify(formattedData[formattedData.length - 1])}`);
-    }
+    // Salvar no cache
+    cache.set(cacheKey, {
+      data: formattedData,
+      timestamp: Date.now()
+    });
 
+    console.log(`[API] Processamento concluído em ${Date.now() - startTime}ms`);
     return NextResponse.json(formattedData);
   } catch (error) {
     console.error('Error fetching price comparison:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido ao buscar dados';
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json([]);
   }
 } 

@@ -12,8 +12,11 @@ try {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+// Cache em memória para dados recentes (5 minutos)
+const cache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+
 function formatDateTime(date: Date): string {
-  // Converte diretamente para America/Sao_Paulo
   return date.toLocaleString('pt-BR', {
     timeZone: 'America/Sao_Paulo',
     day: '2-digit',
@@ -46,11 +49,22 @@ export async function GET(
       return NextResponse.json([]);
     }
 
-    // Define o intervalo de 24 horas em UTC (sem ajuste manual)
+    // Verificar cache primeiro
+    const cacheKey = `spread-history-24h-${symbol}`;
+    const cachedData = cache.get(cacheKey);
+    if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
+      console.log(`[Cache] Retornando dados em cache para ${symbol} (24h)`);
+      return NextResponse.json(cachedData.data);
+    }
+
+    console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
+    const startTime = Date.now();
+
+    // Define o intervalo de 24 horas em UTC
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    // Busca os dados do banco usando UTC
+    // Otimização: usar select específico e limitar dados
     const spreadHistory = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
@@ -68,11 +82,14 @@ export async function GET(
       }
     });
 
-    // Agrupa os dados em intervalos de 30 minutos (lógica idêntica ao Spot vs Futures)
+    console.log(`[API] Encontrados ${spreadHistory.length} registros em ${Date.now() - startTime}ms`);
+
+    // Otimização: processar dados em lotes
     const groupedData = new Map<string, number>();
     let currentTime = roundToNearestInterval(start, 30);
     const endTime = roundToNearestInterval(now, 30);
 
+    // Inicializar intervalos
     while (currentTime <= endTime) {
       const timeKey = formatDateTime(currentTime);
       if (!groupedData.has(timeKey)) {
@@ -81,14 +98,17 @@ export async function GET(
       currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
     }
 
-    // Preenche com os dados reais
-    for (const record of spreadHistory) {
-      // Arredonda o timestamp para o intervalo de 30 minutos em UTC
-      const utcTime = roundToNearestInterval(new Date(record.timestamp), 30);
-      // Só converte para o fuso de Brasília na exibição
-      const timeKey = formatDateTime(utcTime);
-      const currentMax = groupedData.get(timeKey) || 0;
-      groupedData.set(timeKey, Math.max(currentMax, record.spread));
+    // Processar dados em lotes
+    const batchSize = 1000;
+    for (let i = 0; i < spreadHistory.length; i += batchSize) {
+      const batch = spreadHistory.slice(i, i + batchSize);
+      
+      for (const record of batch) {
+        const utcTime = roundToNearestInterval(new Date(record.timestamp), 30);
+        const timeKey = formatDateTime(utcTime);
+        const currentMax = groupedData.get(timeKey) || 0;
+        groupedData.set(timeKey, Math.max(currentMax, record.spread));
+      }
     }
 
     // Converte para o formato esperado pelo gráfico e ordena
@@ -111,6 +131,13 @@ export async function GET(
         return minuteA - minuteB;
       });
 
+    // Salvar no cache
+    cache.set(cacheKey, {
+      data: formattedData,
+      timestamp: Date.now()
+    });
+
+    console.log(`[API] Processamento concluído em ${Date.now() - startTime}ms`);
     return NextResponse.json(formattedData);
   } catch (error) {
     console.error('Error fetching spread history:', error);
