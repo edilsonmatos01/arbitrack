@@ -88,12 +88,12 @@ export async function GET(
     // Otimização: processar dados em lotes
     const groupedData = new Map<string, number>();
     
-    // Inicializar intervalos usando fuso de São Paulo
-    const saoPauloNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-    const saoPauloStart = new Date(saoPauloNow.getTime() - 24 * 60 * 60 * 1000);
+    // Criar datas no fuso horário de São Paulo corretamente
+    const nowInSaoPaulo = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const startInSaoPaulo = new Date(nowInSaoPaulo.getTime() - 24 * 60 * 60 * 1000);
     
-    let currentTime = roundToNearestInterval(saoPauloStart, 30);
-    const endTime = roundToNearestInterval(saoPauloNow, 30);
+    let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
+    const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
 
     // Inicializar intervalos
     while (currentTime <= endTime) {
@@ -110,9 +110,9 @@ export async function GET(
       const batch = spreadHistory.slice(i, i + batchSize);
       
       for (const record of batch) {
-        // Converter timestamp do banco para fuso de São Paulo
-        const saoPauloTime = new Date(record.timestamp.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-        const roundedTime = roundToNearestInterval(saoPauloTime, 30);
+        // Converter timestamp do banco para fuso de São Paulo corretamente
+        const recordInSaoPaulo = new Date(record.timestamp.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
         const timeKey = formatDateTime(roundedTime);
         const currentMax = groupedData.get(timeKey) || 0;
         groupedData.set(timeKey, Math.max(currentMax, record.spread));
