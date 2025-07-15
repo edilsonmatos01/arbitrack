@@ -1,12 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-
-// Configurar plugins do dayjs para conversão de timezone
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -19,36 +17,15 @@ interface SpreadData {
   spread: number;
 }
 
-// Função para converter timestamp UTC para horário de Brasília (UTC-3) com validação flexível
-const convertToBrazilTime = (timestamp: string) => {
-  try {
-    // Verificar se o timestamp é válido
-    if (!timestamp) {
-      console.warn('Timestamp vazio:', timestamp);
-      return timestamp; // Manter o valor original
-    }
-
-    // Tentar converter se for um timestamp ISO válido
-    if (dayjs(timestamp).isValid()) {
-      return dayjs(timestamp).tz('America/Sao_Paulo').format('HH:mm - DD/MM');
-    }
-
-    // Se não for um timestamp ISO, verificar se já está formatado
-    // Se já estiver no formato "HH:mm DD/MM" ou similar, manter como está
-    if (timestamp.includes(':') && timestamp.includes('/')) {
-      return timestamp; // Manter formato já existente
-    }
-
-    // Se não conseguir converter, manter o valor original
-    console.warn('Timestamp não reconhecido, mantendo original:', timestamp);
-    return timestamp;
-  } catch (error) {
-    console.error('Erro ao converter timestamp:', error, 'Timestamp:', timestamp);
-    return timestamp; // Manter o valor original em caso de erro
+// Função padronizada para converter UTC para horário de Brasília (UTC-3)
+const formatToBrazilTime = (timestamp: string) => {
+  if (dayjs(timestamp).isValid()) {
+    return dayjs(timestamp).tz('America/Sao_Paulo').format('DD/MM - HH:mm');
   }
+  return timestamp;
 };
 
-// Componente de Tooltip customizado para formatar os valores
+// Tooltip customizado
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
@@ -76,18 +53,11 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
           throw new Error('Falha ao buscar o histórico de spread.');
         }
         const rawData: SpreadData[] = await response.json();
-        
-        console.log('Dados brutos recebidos:', rawData.slice(0, 3)); // Debug: mostrar primeiros 3 registros
-        
-        // Converter timestamps de UTC para horário de Brasília (UTC-3) com validação flexível
-        // Necessário porque a Render roda em UTC, mas queremos exibir no horário brasileiro
+        // Aplica a função padronizada de formatação
         const convertedData = rawData.map(item => ({
           ...item,
-          timestamp: convertToBrazilTime(item.timestamp)
+          timestamp: formatToBrazilTime(item.timestamp)
         }));
-        
-        console.log('Dados convertidos:', convertedData.slice(0, 3)); // Debug: mostrar primeiros 3 registros
-        
         setData(convertedData);
       } catch (err: any) {
         setError(err.message || 'Ocorreu um erro.');
@@ -142,7 +112,6 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
             dataKey="timestamp"
             stroke="#9CA3AF"
             tick={{ fill: '#9CA3AF' }}
-            // Timestamps convertidos para horário brasileiro (UTC-3) com validação flexível
             interval="preserveStartEnd"
             angle={-45}
             textAnchor="end"
