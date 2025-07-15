@@ -196,7 +196,7 @@ const OpportunityRow = React.memo(({ opportunity, livePrices, formatPrice, getSp
               {new Decimal(spreadValue).toFixed(2)}%
             </td>
             <td className="py-4 px-6 whitespace-nowrap text-sm">
-              <MaxSpreadCell symbol={opportunity.symbol} currentSpread={spreadValue} />
+              <MaxSpreadCell symbol={opportunity.symbol} currentSpread={spreadValue} maxSpread24h={opportunity.maxSpread24h} />
             </td>
             <td className="py-4 px-6 whitespace-nowrap text-center text-sm">
               <button 
@@ -295,6 +295,8 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   // Adicionar estado para quantidade máxima de oportunidades
   const [maxOpportunities, setMaxOpportunities] = useState(10);
 
+
+
   // Carregar posições do banco de dados na inicialização
   useEffect(() => {
     const loadPositions = async () => {
@@ -340,6 +342,8 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string|null>(null);
   const [successMessage, setSuccessMessage] = useState<string|null>(null);
+
+
 
   function calcularLucro(spreadValue: number) { 
     return ((spreadValue / 100) * amount).toFixed(2);
@@ -892,8 +896,6 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
       pnlFutures
     };
   };
-
-
 
   return (
     <div className="space-y-6">

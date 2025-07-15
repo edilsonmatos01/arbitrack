@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import { LineChart as ChartIcon } from 'lucide-react';
 import {
   Dialog,
@@ -11,39 +11,101 @@ import {
 } from '@/components/ui/dialog';
 import SoundAlert from './SoundAlert';
 import { useSoundAlerts } from './useSoundAlerts';
-
-// Lazy loading dos gráficos para melhor performance
-const SpreadHistoryChart = lazy(() => import('./SpreadHistoryChart'));
-const PriceComparisonChart = lazy(() => import('./PriceComparisonChart'));
+import SpreadHistoryChart from './SpreadHistoryChart';
+import PriceComparisonChart from './PriceComparisonChart';
 
 interface MaxSpreadCellProps {
   symbol: string;
   currentSpread?: number;
+  maxSpread24h?: number | null;
 }
 
-export default function MaxSpreadCell({ symbol, currentSpread = 0 }: MaxSpreadCellProps) {
+interface SpreadStats {
+  spMax: number | null;
+  crosses: number;
+}
+
+// Cache em memória para evitar chamadas repetidas
+const cache = new Map<string, { data: SpreadStats; timestamp: number }>();
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutos
+
+export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h = null }: MaxSpreadCellProps) {
+  const [stats, setStats] = useState<SpreadStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [chartType, setChartType] = useState<'spread' | 'comparison'>('spread');
-  const [isLoading, setIsLoading] = useState(false);
   const { isAlertEnabled, toggleAlert } = useSoundAlerts();
 
-  const handleModalOpen = (open: boolean) => {
-    setIsModalOpen(open);
-    if (open) {
+  // Buscar dados do spread máximo real das últimas 24 horas
+  useEffect(() => {
+    const fetchStats = async () => {
+      const cached = cache.get(symbol);
+      if (cached && (Date.now() - cached.timestamp < CACHE_DURATION_MS)) {
+        setStats(cached.data);
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
-      // Simular um pequeno delay para mostrar loading
-      setTimeout(() => setIsLoading(false), 100);
+      try {
+        console.log(`[MaxSpreadCell] Buscando spread máximo real para ${symbol}...`);
+        const response = await fetch(`/api/spreads/${encodeURIComponent(symbol)}/max`);
+        
+        if (!response.ok) {
+          throw new Error('Falha ao buscar dados');
+        }
+        
+        const data: SpreadStats = await response.json();
+        console.log(`[MaxSpreadCell] Dados recebidos para ${symbol}:`, data);
+        
+        // Se não houver dados suficientes, mostra N/D
+        if (data.spMax === null || data.crosses < 2) {
+          setStats({ spMax: null, crosses: data.crosses });
+        } else {
+          setStats(data);
+        }
+        
+        cache.set(symbol, { data, timestamp: Date.now() });
+      } catch (error) {
+        console.error(`[MaxSpreadCell] Erro ao buscar spread máximo para ${symbol}:`, error);
+        setStats(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, [symbol]);
+
+  // Reset chart type when modal closes
+  useEffect(() => {
+    if (!isModalOpen) {
+      setChartType('spread');
     }
+  }, [isModalOpen]);
+
+  const getSpreadColor = (spread: number) => {
+    if (spread > 2) return 'text-green-400';
+    if (spread > 1) return 'text-yellow-400';
+    return 'text-gray-400';
   };
+
+  if (isLoading) {
+    return <span className="text-gray-500">Carregando...</span>;
+  }
+
+  if (!stats || stats.spMax === null || stats.crosses < 2) {
+    return <span className="text-gray-400">N/D</span>;
+  }
 
   return (
     <div className="flex items-center space-x-2">
       <div className="flex-1">
-        <div className="text-sm font-medium text-white">
-          {currentSpread > 0 ? `${currentSpread.toFixed(2)}%` : '0.00%'}
+        <div className={`text-sm font-bold ${getSpreadColor(stats.spMax)}`}>
+          {stats.spMax.toFixed(2)}%
         </div>
         <div className="text-xs text-gray-400">
-          Spread atual
+          Spread máximo 24h ({stats.crosses} registros)
         </div>
       </div>
       
@@ -51,12 +113,12 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0 }: MaxSpreadCe
         <SoundAlert 
           symbol={symbol}
           currentSpread={currentSpread}
-          maxSpread24h={currentSpread > 0 ? currentSpread * 1.5 : null} // Estimativa
+          maxSpread24h={stats.spMax}
           isEnabled={isAlertEnabled(symbol)}
           onToggle={(enabled) => toggleAlert(symbol, enabled)}
         />
         
-        <Dialog open={isModalOpen} onOpenChange={handleModalOpen}>
+        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
             <button className="p-1 text-gray-400 hover:text-white transition-colors">
               <ChartIcon className="h-5 w-5" />
@@ -94,41 +156,23 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0 }: MaxSpreadCe
             <div className="mt-4">
               {/* Renderiza o gráfico apenas se o modal estiver aberto */}
               {isModalOpen && (
-                <Suspense fallback={
-                  <div className="flex items-center justify-center h-[400px] bg-gray-900 rounded-lg border border-gray-800">
-                    <div className="text-center text-gray-400">
-                      <div className="mb-2">🔄 Carregando gráfico...</div>
-                      <div className="text-sm">Preparando dados para {chartType === 'spread' ? 'Spread 24h' : 'Spot vs Futures'}</div>
-                    </div>
-                  </div>
-                }>
-                  {isLoading ? (
-                    <div className="flex items-center justify-center h-[400px] bg-gray-900 rounded-lg border border-gray-800">
-                      <div className="text-center text-gray-400">
-                        <div className="mb-2">⚡ Inicializando...</div>
-                        <div className="text-sm">Carregando componentes do gráfico</div>
+                <>
+                  {chartType === 'spread' ? (
+                    <div>
+                      <div className="mb-3 text-sm text-gray-400">
+                        Histórico de spread máximo das últimas 24 horas
                       </div>
+                      <SpreadHistoryChart symbol={symbol} />
                     </div>
                   ) : (
-                    <>
-                      {chartType === 'spread' ? (
-                        <div>
-                          <div className="mb-3 text-sm text-gray-400">
-                            Histórico de spread máximo das últimas 24 horas
-                          </div>
-                          <SpreadHistoryChart symbol={symbol} />
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="mb-3 text-sm text-gray-400">
-                            Comparação de preços spot vs futures (pontos a cada 30 min)
-                          </div>
-                          <PriceComparisonChart symbol={symbol} />
-                        </div>
-                      )}
-                    </>
+                    <div>
+                      <div className="mb-3 text-sm text-gray-400">
+                        Comparação de preços spot vs futures (pontos a cada 30 min)
+                      </div>
+                      <PriceComparisonChart symbol={symbol} />
+                    </div>
                   )}
-                </Suspense>
+                </>
               )}
             </div>
           </DialogContent>

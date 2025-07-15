@@ -221,13 +221,16 @@ export default function SoundAlert({
         </button>
       )}
       
-      {isEnabled && maxSpread24h && maxSpread24h > 0 && (
+      {isEnabled && (
         <div className="flex items-center gap-1">
           <Bell 
             className={`h-3 w-3 transition-all duration-200 ${getBellColor()}`} 
           />
           <span className={`text-xs transition-colors ${getAlertColor()}`}>
-            {((currentSpread / maxSpread24h) * 100).toFixed(0)}%
+            {maxSpread24h && maxSpread24h > 0 
+              ? ((currentSpread / maxSpread24h) * 100).toFixed(0)
+              : '100'
+            }%
           </span>
         </div>
       )}
