@@ -16,7 +16,7 @@ services:
   name: robo-de-arbitragem
   env: node
   plan: free
-  buildCommand: npm install && npx prisma generate && npm run build && cp -r .next/standalone . && cp -r .next/static standalone/.next/static
+  buildCommand: npm install && npx prisma generate && npm run build
   startCommand: npm start
   envVars:
     - key: DATABASE_URL
@@ -58,7 +58,7 @@ services:
   name: robo-de-arbitragem-tracker
   env: node
   plan: free
-  buildCommand: npm install && npx prisma generate && npm run build && cp -r .next/standalone . && cp -r .next/static standalone/.next/static
+  buildCommand: npm install && npx prisma generate && npm run build
   startCommand: npm start
   envVars:
     - key: DATABASE_URL
