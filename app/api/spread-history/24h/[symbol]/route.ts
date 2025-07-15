@@ -23,7 +23,12 @@ function formatDateTime(date: Date): string {
   return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
 }
 
-
+function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
+  const minutes = Math.floor(date.getMinutes() / intervalMinutes) * intervalMinutes;
+  const rounded = new Date(date);
+  rounded.setMinutes(minutes, 0, 0);
+  return rounded;
+}
 
 export async function GET(
   request: Request,
@@ -51,7 +56,7 @@ export async function GET(
     console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
     const startTime = Date.now();
 
-    // Define o intervalo de 24 horas em UTC
+    // Define o intervalo de 24 horas
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -81,18 +86,18 @@ export async function GET(
       return NextResponse.json([]);
     }
 
-    // Agrupar por intervalos de 30 minutos em UTC
+    // Agrupar por intervalos de 30 minutos usando fuso horário de São Paulo
     const groupedData = new Map<string, number>();
     
-    // Criar intervalos de 30 minutos em UTC
-    let currentTime = new Date(start);
-    currentTime.setMinutes(Math.floor(currentTime.getMinutes() / 30) * 30, 0, 0);
+    // Criar datas no fuso horário de São Paulo corretamente (igual ao Spot vs Futures)
+    const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
+    const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
     
-    const endTime = new Date(now);
-    endTime.setMinutes(Math.floor(endTime.getMinutes() / 30) * 30, 0, 0);
+    let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
+    const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
     
     while (currentTime <= endTime) {
-      const timeKey = formatDateTime(currentTime); // Converte para SP apenas na formatação
+      const timeKey = formatDateTime(currentTime);
       groupedData.set(timeKey, 0);
       currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
     }
@@ -102,10 +107,10 @@ export async function GET(
     for (let i = 0; i < spreadHistory.length; i += batchSize) {
       const batch = spreadHistory.slice(i, i + batchSize);
       for (const record of batch) {
-        // Arredondar o timestamp em UTC
-        const roundedTime = new Date(record.timestamp);
-        roundedTime.setMinutes(Math.floor(roundedTime.getMinutes() / 30) * 30, 0, 0);
-        const timeKey = formatDateTime(roundedTime); // Converte para SP apenas na formatação
+        // Converter timestamp do banco para fuso de São Paulo usando date-fns-tz (igual ao Spot vs Futures)
+        const recordInSaoPaulo = toZonedTime(record.timestamp, 'America/Sao_Paulo');
+        const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
+        const timeKey = formatDateTime(roundedTime);
         const currentMax = groupedData.get(timeKey) || 0;
         groupedData.set(timeKey, Math.max(currentMax, record.spread));
       }

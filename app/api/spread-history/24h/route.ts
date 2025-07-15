@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { toZonedTime, format } from 'date-fns-tz';
 
 let prisma: PrismaClient | null = null;
 
@@ -13,19 +14,9 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 function formatDateTime(date: Date): string {
-  return date.toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).replace(', ', ' - ');
-}
-
-function adjustToUTC(date: Date): Date {
-  // Ajusta o horário para UTC considerando o offset de Brasília (-3)
-  return new Date(date.getTime() + (3 * 60 * 60 * 1000));
+  // Converter para fuso horário de São Paulo usando date-fns-tz
+  const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
+  return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
 }
 
 function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
@@ -49,18 +40,17 @@ export async function GET(request: Request) {
       return NextResponse.json([]);
     }
 
-    // Define o intervalo de 24 horas em UTC
+    // Define o intervalo de 24 horas
     const now = new Date();
-    const utcNow = adjustToUTC(now);
-    const utcStart = new Date(utcNow.getTime() - 24 * 60 * 60 * 1000);
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    // Busca os dados do banco usando UTC
+    // Busca os dados do banco
     const spreadHistory = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
         timestamp: {
-          gte: utcStart,
-          lte: utcNow
+          gte: start,
+          lte: now
         }
       },
       select: {
@@ -72,15 +62,18 @@ export async function GET(request: Request) {
       }
     });
 
-    // Agrupa os dados em intervalos de 30 minutos
+    // Agrupa os dados em intervalos de 30 minutos usando fuso horário de São Paulo
     const groupedData = new Map<string, number>();
     
-    // Inicializa todos os intervalos de 30 minutos
-    let currentTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const endTime = now;
+    // Criar datas no fuso horário de São Paulo corretamente
+    const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
+    const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
+    
+    let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
+    const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
 
     while (currentTime <= endTime) {
-      const timeKey = formatDateTime(roundToNearestInterval(currentTime, 30));
+      const timeKey = formatDateTime(currentTime);
       if (!groupedData.has(timeKey)) {
         groupedData.set(timeKey, 0);
       }
@@ -89,9 +82,10 @@ export async function GET(request: Request) {
 
     // Preenche com os dados reais
     for (const record of spreadHistory) {
-      // Converte o timestamp UTC do banco para o horário local
-      const localTime = new Date(record.timestamp);
-      const timeKey = formatDateTime(roundToNearestInterval(localTime, 30));
+      // Converter timestamp do banco para fuso de São Paulo usando date-fns-tz
+      const recordInSaoPaulo = toZonedTime(record.timestamp, 'America/Sao_Paulo');
+      const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
+      const timeKey = formatDateTime(roundedTime);
       const currentMax = groupedData.get(timeKey) || 0;
       groupedData.set(timeKey, Math.max(currentMax, record.spread));
     }

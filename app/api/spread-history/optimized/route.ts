@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { toZonedTime, format } from 'date-fns-tz';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -9,15 +10,9 @@ const cache = new Map();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutos
 
 function formatDateTime(date: Date): string {
-  const utcDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000);
-  return utcDate.toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).replace(', ', ' - ');
+  // Converter para fuso horário de São Paulo usando date-fns-tz
+  const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
+  return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
 }
 
 export async function GET(req: NextRequest) {
@@ -27,6 +22,11 @@ export async function GET(req: NextRequest) {
 
     if (!symbol) {
       return NextResponse.json({ error: 'Symbol is required' }, { status: 400 });
+    }
+
+    if (!prisma) {
+      console.warn('Aviso: Banco de dados não disponível');
+      return NextResponse.json([]);
     }
 
     // Verificar cache primeiro
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
 
     console.log(`[API] Consulta SQL executada em ${Date.now() - startTime}ms`);
 
-    // Formatar dados
+    // Formatar dados usando timezone correto
     const formattedHistory = (rawHistory as any[]).map(record => ({
       timestamp: formatDateTime(new Date(record.bucket_time)),
       spread: parseFloat(record.max_spread)
