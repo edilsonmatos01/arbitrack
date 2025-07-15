@@ -17,29 +17,10 @@ export const revalidate = 0;
 const cache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
-// Função para limpar cache
-function clearCache() {
-  cache.clear();
-  console.log('[CACHE] Cache limpo');
-}
-
 function formatDateTime(date: Date): string {
   // Converter para fuso horário de São Paulo usando date-fns-tz
   const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
   return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
-}
-
-// Função alternativa para debug
-function formatDateTimeDebug(date: Date): string {
-  // Usar toLocaleString diretamente para comparar
-  return date.toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).replace(', ', ' - ');
 }
 
 function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
@@ -79,7 +60,7 @@ export async function GET(
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    // Otimização: usar select específico e limitar dados
+    // Buscar todos os registros no intervalo UTC
     const spreadHistory = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
@@ -97,34 +78,12 @@ export async function GET(
       }
     });
 
-    console.log(`[API] Encontrados ${spreadHistory.length} registros em ${Date.now() - startTime}ms`);
-    
-    // Log detalhado dos dados encontrados
-    if (spreadHistory.length > 0) {
-      console.log(`[DEBUG] Primeiro registro:`, spreadHistory[0]);
-      console.log(`[DEBUG] Último registro:`, spreadHistory[spreadHistory.length - 1]);
-    }
-
-    // Otimização: processar dados em lotes
+    // Agrupar por intervalos de 30 minutos em UTC
     const groupedData = new Map<string, number>();
-    
-    // Criar datas no fuso horário de São Paulo corretamente
-    const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
-    const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
-    
-    console.log(`[DEBUG] now (UTC):`, now.toISOString());
-    console.log(`[DEBUG] nowInSaoPaulo:`, nowInSaoPaulo.toString());
-    console.log(`[DEBUG] startInSaoPaulo:`, startInSaoPaulo.toString());
-    
-    let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
-    const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
-    
-    console.log(`[DEBUG] currentTime:`, currentTime.toString());
-    console.log(`[DEBUG] endTime:`, endTime.toString());
-
-    // Inicializar intervalos
+    let currentTime = roundToNearestInterval(start, 30);
+    const endTime = roundToNearestInterval(now, 30);
     while (currentTime <= endTime) {
-      const timeKey = formatDateTime(currentTime);
+      const timeKey = formatDateTime(currentTime); // Só aqui converte para SP
       if (!groupedData.has(timeKey)) {
         groupedData.set(timeKey, 0);
       }
@@ -135,24 +94,12 @@ export async function GET(
     const batchSize = 1000;
     for (let i = 0; i < spreadHistory.length; i += batchSize) {
       const batch = spreadHistory.slice(i, i + batchSize);
-      
       for (const record of batch) {
-        // Converter timestamp do banco para fuso de São Paulo usando date-fns-tz
-        const recordInSaoPaulo = toZonedTime(record.timestamp, 'America/Sao_Paulo');
-        const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
-        const timeKey = formatDateTime(roundedTime);
+        // Arredondar o timestamp em UTC
+        const roundedTime = roundToNearestInterval(record.timestamp, 30);
+        const timeKey = formatDateTime(roundedTime); // Só aqui converte para SP
         const currentMax = groupedData.get(timeKey) || 0;
         groupedData.set(timeKey, Math.max(currentMax, record.spread));
-        
-        // Log dos últimos registros processados
-        if (record === spreadHistory[spreadHistory.length - 1]) {
-          console.log(`[DEBUG] Último registro processado:`);
-          console.log(`  - Timestamp original:`, record.timestamp);
-          console.log(`  - Timestamp em SP:`, recordInSaoPaulo.toString());
-          console.log(`  - Timestamp arredondado:`, roundedTime.toString());
-          console.log(`  - TimeKey final (date-fns-tz):`, timeKey);
-          console.log(`  - TimeKey debug (toLocaleString):`, formatDateTimeDebug(roundedTime));
-        }
       }
     }
 
@@ -169,7 +116,6 @@ export async function GET(
         const [dayB, monthB] = dateB.split('/').map(Number);
         const [hourA, minuteA] = timeA.split(':').map(Number);
         const [hourB, minuteB] = timeB.split(':').map(Number);
-        
         if (monthA !== monthB) return monthA - monthB;
         if (dayA !== dayB) return dayA - dayB;
         if (hourA !== hourB) return hourA - hourB;
