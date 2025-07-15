@@ -19,6 +19,14 @@ interface OperationHistory {
   finalizedAt: string;
 }
 
+interface ApiConfiguration {
+  id: string;
+  exchange: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface MetricData {
   totalOperations: number;
   averageSpread: number;
@@ -32,7 +40,7 @@ export default function StaticMetrics() {
     totalOperations: 0,
     averageSpread: 0,
     successRate: 0,
-    activeExchanges: 4,
+    activeExchanges: 0,
     averageTime: 0
   });
   const [isLoading, setIsLoading] = useState(true);
@@ -40,9 +48,17 @@ export default function StaticMetrics() {
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        // Buscar histórico de operações (sem filtro de data)
-        const response = await fetch('/api/operation-history');
-        const operations: OperationHistory[] = await response.json();
+        // Buscar dados em paralelo
+        const [operationsRes, configsRes] = await Promise.all([
+          fetch('/api/operation-history'),
+          fetch('/api/config/api-keys')
+        ]);
+
+        const operations: OperationHistory[] = await operationsRes.json();
+        const configs: ApiConfiguration[] = await configsRes.json();
+
+        // Calcular exchanges ativas (configuradas e ativas)
+        const activeExchanges = configs.filter(config => config.isActive).length;
 
         if (Array.isArray(operations) && operations.length > 0) {
           // Calcular métricas reais
@@ -54,13 +70,6 @@ export default function StaticMetrics() {
           // Calcular taxa de sucesso (operações com lucro)
           const successfulOperations = operations.filter(op => op.profitLossUsd > 0).length;
           const successRate = (successfulOperations / totalOperations) * 100;
-          
-          // Calcular exchanges ativas (únicas)
-          const exchangesUsed = new Set([
-            ...operations.map(op => op.spotExchange),
-            ...operations.map(op => op.futuresExchange)
-          ]);
-          const activeExchanges = exchangesUsed.size;
           
           // Calcular tempo médio das operações (em minutos)
           const totalTime = operations.reduce((sum, op) => {
@@ -78,12 +87,12 @@ export default function StaticMetrics() {
             averageTime
           });
         } else {
-          // Se não houver operações, usar valores zerados
+          // Se não houver operações, usar valores zerados mas manter exchanges ativas
           setMetrics({
             totalOperations: 0,
             averageSpread: 0,
             successRate: 0,
-            activeExchanges: 4, // Gate.io, MEXC, Binance, Bybit (configuradas)
+            activeExchanges,
             averageTime: 0
           });
         }
@@ -94,7 +103,7 @@ export default function StaticMetrics() {
           totalOperations: 0,
           averageSpread: 0,
           successRate: 0,
-          activeExchanges: 4,
+          activeExchanges: 0,
           averageTime: 0
         });
       } finally {
@@ -130,7 +139,7 @@ export default function StaticMetrics() {
     {
       title: 'Exchanges Ativas',
       value: isLoading ? '...' : metrics.activeExchanges.toString(),
-      subtitle: 'Gate.io, MEXC, Binance, Bybit',
+      subtitle: metrics.activeExchanges > 0 ? `${metrics.activeExchanges} configurada${metrics.activeExchanges !== 1 ? 's' : ''}` : 'Nenhuma configurada',
       icon: Users,
       color: 'text-purple-400'
     },

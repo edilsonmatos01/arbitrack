@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const filter = searchParams.get('filter') || '24h'; // 24h, day, range
+    const filter = searchParams.get('filter') || 'all'; // all, 24h, day, range
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const symbol = searchParams.get('symbol');
@@ -35,38 +35,42 @@ export async function GET(req: NextRequest) {
       whereCondition.symbol = symbol;
     }
 
-    // Filtros de data
-    const now = new Date();
-    switch (filter) {
-      case '24h':
-        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        whereCondition.finalizedAt = {
-          gte: twentyFourHoursAgo
-        };
-        console.log('⏰ Filtro 24h - desde:', twentyFourHoursAgo.toISOString());
-        break;
-      case 'day':
-        if (startDate) {
-          const dayStart = new Date(startDate);
-          dayStart.setHours(0, 0, 0, 0);
-          const dayEnd = new Date(startDate);
-          dayEnd.setHours(23, 59, 59, 999);
+    // Filtros de data (só aplicar se não for 'all')
+    if (filter !== 'all') {
+      const now = new Date();
+      switch (filter) {
+        case '24h':
+          const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
           whereCondition.finalizedAt = {
-            gte: dayStart,
-            lte: dayEnd
+            gte: twentyFourHoursAgo
           };
-          console.log('⏰ Filtro day - período:', dayStart.toISOString(), 'até', dayEnd.toISOString());
-        }
-        break;
-      case 'range':
-        if (startDate && endDate) {
-          whereCondition.finalizedAt = {
-            gte: new Date(startDate),
-            lte: new Date(endDate)
-          };
-          console.log('⏰ Filtro range - período:', startDate, 'até', endDate);
-        }
-        break;
+          console.log('⏰ Filtro 24h - desde:', twentyFourHoursAgo.toISOString());
+          break;
+        case 'day':
+          if (startDate) {
+            const dayStart = new Date(startDate);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(startDate);
+            dayEnd.setHours(23, 59, 59, 999);
+            whereCondition.finalizedAt = {
+              gte: dayStart,
+              lte: dayEnd
+            };
+            console.log('⏰ Filtro day - período:', dayStart.toISOString(), 'até', dayEnd.toISOString());
+          }
+          break;
+        case 'range':
+          if (startDate && endDate) {
+            whereCondition.finalizedAt = {
+              gte: new Date(startDate),
+              lte: new Date(endDate)
+            };
+            console.log('⏰ Filtro range - período:', startDate, 'até', endDate);
+          }
+          break;
+      }
+    } else {
+      console.log('📋 Buscando todas as operações (sem filtro de data)');
     }
 
     console.log('🔍 Condição WHERE:', JSON.stringify(whereCondition, null, 2));
@@ -108,11 +112,11 @@ export async function GET(req: NextRequest) {
         })));
         
         return NextResponse.json(operations);
-              } catch (dbError: any) {
-          console.error('❌ Erro ao buscar do banco:', dbError);
-          console.error('❌ Stack trace:', dbError.stack);
-          // Continua com fallback
-        }
+      } catch (dbError: any) {
+        console.error('❌ Erro ao buscar do banco:', dbError);
+        console.error('❌ Stack trace:', dbError.stack);
+        // Continua com fallback
+      }
     }
 
     // Fallback: retornar array vazio por enquanto
@@ -189,7 +193,7 @@ export async function POST(req: NextRequest) {
         });
         console.log('✅ Salvo no banco de dados:', dbOperation);
         return NextResponse.json(dbOperation);
-      } catch (dbError) {
+      } catch (dbError: any) {
         console.error('❌ Erro no banco, usando fallback:', dbError);
         console.error('❌ Stack trace:', dbError.stack);
         // Continua com fallback
