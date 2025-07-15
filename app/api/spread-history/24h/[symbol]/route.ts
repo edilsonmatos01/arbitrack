@@ -23,12 +23,7 @@ function formatDateTime(date: Date): string {
   return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
 }
 
-function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
-  const minutes = Math.floor(date.getMinutes() / intervalMinutes) * intervalMinutes;
-  const rounded = new Date(date);
-  rounded.setMinutes(minutes, 0, 0);
-  return rounded;
-}
+
 
 export async function GET(
   request: Request,
@@ -60,6 +55,8 @@ export async function GET(
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+    console.log(`[DEBUG] Buscando dados de ${start.toISOString()} até ${now.toISOString()}`);
+
     // Buscar todos os registros no intervalo UTC
     const spreadHistory = await prisma.spreadHistory.findMany({
       where: {
@@ -78,15 +75,25 @@ export async function GET(
       }
     });
 
+    console.log(`[DEBUG] Encontrados ${spreadHistory.length} registros`);
+
+    if (spreadHistory.length === 0) {
+      return NextResponse.json([]);
+    }
+
     // Agrupar por intervalos de 30 minutos em UTC
     const groupedData = new Map<string, number>();
-    let currentTime = roundToNearestInterval(start, 30);
-    const endTime = roundToNearestInterval(now, 30);
+    
+    // Criar intervalos de 30 minutos em UTC
+    let currentTime = new Date(start);
+    currentTime.setMinutes(Math.floor(currentTime.getMinutes() / 30) * 30, 0, 0);
+    
+    const endTime = new Date(now);
+    endTime.setMinutes(Math.floor(endTime.getMinutes() / 30) * 30, 0, 0);
+    
     while (currentTime <= endTime) {
-      const timeKey = formatDateTime(currentTime); // Só aqui converte para SP
-      if (!groupedData.has(timeKey)) {
-        groupedData.set(timeKey, 0);
-      }
+      const timeKey = formatDateTime(currentTime); // Converte para SP apenas na formatação
+      groupedData.set(timeKey, 0);
       currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
     }
 
@@ -96,12 +103,19 @@ export async function GET(
       const batch = spreadHistory.slice(i, i + batchSize);
       for (const record of batch) {
         // Arredondar o timestamp em UTC
-        const roundedTime = roundToNearestInterval(record.timestamp, 30);
-        const timeKey = formatDateTime(roundedTime); // Só aqui converte para SP
+        const roundedTime = new Date(record.timestamp);
+        roundedTime.setMinutes(Math.floor(roundedTime.getMinutes() / 30) * 30, 0, 0);
+        const timeKey = formatDateTime(roundedTime); // Converte para SP apenas na formatação
         const currentMax = groupedData.get(timeKey) || 0;
         groupedData.set(timeKey, Math.max(currentMax, record.spread));
       }
     }
+
+    // Log para debug
+    console.log(`[DEBUG] Dados processados: ${spreadHistory.length} registros`);
+    console.log(`[DEBUG] Intervalo: ${start.toISOString()} até ${now.toISOString()}`);
+    console.log(`[DEBUG] Último registro: ${spreadHistory[spreadHistory.length - 1]?.timestamp.toISOString()}`);
+    console.log(`[DEBUG] Chaves de tempo criadas: ${groupedData.size}`);
 
     // Converte para o formato esperado pelo gráfico e ordena
     const formattedData = Array.from(groupedData.entries())
