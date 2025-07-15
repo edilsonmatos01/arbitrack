@@ -91,9 +91,9 @@ export async function GET(
     // Otimização: processar dados em lotes
     const groupedData = new Map<string, number>();
     
-    // Criar datas no fuso horário de São Paulo usando date-fns-tz
+    // Criar datas no fuso horário de São Paulo corretamente
     const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
-    const startInSaoPaulo = new Date(nowInSaoPaulo.getTime() - 24 * 60 * 60 * 1000);
+    const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
     
     let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
     const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
