@@ -2,13 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
-
-// Configurar plugins do dayjs para conversão de timezone
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 interface SpreadHistoryChartProps {
   symbol: string;
@@ -18,17 +11,6 @@ interface SpreadData {
   timestamp: string;
   spread: number;
 }
-
-// Função para converter timestamp para horário de Brasília (UTC-3)
-const formatToBrazilTime = (timestamp: string) => {
-  try {
-    // Converter para horário de Brasília
-    return dayjs(timestamp).tz('America/Sao_Paulo').format('HH:mm DD/MM');
-  } catch (error) {
-    // Fallback caso haja erro na conversão
-    return timestamp;
-  }
-};
 
 // Componente de Tooltip customizado para formatar os valores
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -59,14 +41,9 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
         }
         const rawData: SpreadData[] = await response.json();
         
-        // Converter timestamps para horário de Brasília (UTC-3)
-        // Necessário porque a Render roda em UTC, mas queremos exibir no horário brasileiro
-        const convertedData = rawData.map(item => ({
-          ...item,
-          timestamp: formatToBrazilTime(item.timestamp)
-        }));
-        
-        setData(convertedData);
+        // A API já retorna os timestamps formatados no horário de Brasília (UTC-3)
+        // Não precisamos fazer conversão adicional aqui
+        setData(rawData);
       } catch (err: any) {
         setError(err.message || 'Ocorreu um erro.');
       } finally {
@@ -120,7 +97,7 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
             dataKey="timestamp"
             stroke="#9CA3AF"
             tick={{ fill: '#9CA3AF' }}
-            // Os timestamps já estão convertidos para horário brasileiro
+            // Os timestamps já estão formatados no horário brasileiro pela API
             interval="preserveStartEnd"
             angle={-45}
             textAnchor="end"
