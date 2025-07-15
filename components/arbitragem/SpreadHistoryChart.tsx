@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+// Configurar plugins do dayjs para conversão de timezone
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 interface SpreadHistoryChartProps {
   symbol: string;
@@ -11,6 +18,17 @@ interface SpreadData {
   timestamp: string;
   spread: number;
 }
+
+// Função para converter timestamp UTC para horário de Brasília (UTC-3)
+const convertToBrazilTime = (timestamp: string) => {
+  try {
+    // Converter de UTC para horário de Brasília
+    return dayjs(timestamp).tz('America/Sao_Paulo').format('HH:mm DD/MM');
+  } catch (error) {
+    console.error('Erro ao converter timestamp:', error);
+    return timestamp; // Fallback para o valor original
+  }
+};
 
 // Componente de Tooltip customizado para formatar os valores
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -41,9 +59,14 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
         }
         const rawData: SpreadData[] = await response.json();
         
-        // A API já retorna os timestamps formatados no horário de Brasília (UTC-3)
-        // Não precisamos fazer conversão adicional aqui
-        setData(rawData);
+        // Converter timestamps de UTC para horário de Brasília (UTC-3)
+        // Necessário porque a Render roda em UTC, mas queremos exibir no horário brasileiro
+        const convertedData = rawData.map(item => ({
+          ...item,
+          timestamp: convertToBrazilTime(item.timestamp)
+        }));
+        
+        setData(convertedData);
       } catch (err: any) {
         setError(err.message || 'Ocorreu um erro.');
       } finally {
@@ -97,7 +120,7 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
             dataKey="timestamp"
             stroke="#9CA3AF"
             tick={{ fill: '#9CA3AF' }}
-            // Os timestamps já estão formatados no horário brasileiro pela API
+            // Timestamps convertidos para horário brasileiro (UTC-3)
             interval="preserveStartEnd"
             angle={-45}
             textAnchor="end"
