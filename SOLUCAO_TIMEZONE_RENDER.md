@@ -9,7 +9,8 @@ O gráfico "Spread 24h" estava exibindo horários 3 horas atrás do horário cor
 ### Problema Identificado
 - **Ambiente Local**: Funcionava corretamente
 - **Ambiente Render**: Horários 3 horas atrás
-- **Causa**: O ambiente do Render estava ignorando a variável de ambiente `TZ=America/Sao_Paulo`
+- **Causa Principal**: A API Spread 24h estava criando **intervalos vazios** desnecessários
+- **Causa Secundária**: O ambiente do Render estava ignorando a variável de ambiente `TZ=America/Sao_Paulo`
 - **Banco de Dados**: Armazenava timestamps em UTC (correto)
 - **Código**: Usava `date-fns-tz` para conversão (correto)
 
@@ -39,6 +40,7 @@ Implementada função `forceSaoPauloConversion()` que:
 - **Função `formatDateTimeForSaoPaulo()`**: Força conversão para São Paulo
 - **Função `forceSaoPauloConversion()`**: Conversão com fallback automático
 - **Função `roundToNearestInterval()`**: Arredondamento robusto
+- **CORREÇÃO PRINCIPAL**: Removida criação de intervalos vazios (igual à API Price Comparison)
 - **Processamento**: Usa conversão forçada em todos os pontos críticos
 
 ### 4. Scripts de Teste
@@ -46,6 +48,8 @@ Implementada função `forceSaoPauloConversion()` que:
 - `scripts/test-timezone-difference.js`: Compara APIs
 - `scripts/test-render-timezone.js`: Simula ambiente Render
 - `scripts/test-database-timezone.js`: Testa banco de dados
+- `scripts/debug-api-difference.js`: Identifica diferenças entre APIs
+- `scripts/test-fixed-api.js`: Testa a API corrigida
 
 ## 🔧 Código da Solução
 
@@ -136,9 +140,10 @@ git push origin master
 Após o deploy no Render:
 - ✅ Gráfico "Spread 24h" mostra horário correto (Brasil)
 - ✅ Tooltip mostra data/hora correta
-- ✅ Eixo X mostra intervalos corretos
+- ✅ Eixo X mostra apenas intervalos com dados (não mais vazios)
 - ✅ Logs mostram warnings se fallback for usado
 - ✅ Performance mantida (cache de 15 minutos)
+- ✅ Comportamento igual ao gráfico "Spot vs Futures"
 
 ## 🔄 Manutenção
 
@@ -156,7 +161,8 @@ Após o deploy no Render:
 
 ---
 
-**Status**: ✅ **SOLUÇÃO IMPLEMENTADA E DEPLOYADA**
+**Status**: ✅ **SOLUÇÃO DEFINITIVA IMPLEMENTADA E DEPLOYADA**
 **Data**: 15/07/2025
 **Responsável**: Assistente AI
-**Próxima Verificação**: Após deploy no Render 
+**Próxima Verificação**: Após deploy no Render
+**Causa Raiz**: Intervalos vazios criados desnecessariamente na API Spread 24h 
