@@ -13,9 +13,9 @@ try {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Cache em memória para dados recentes (5 minutos)
+// Cache em memória para dados recentes (15 minutos - aumentado para reduzir requisições)
 const cache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+const CACHE_DURATION = 15 * 60 * 1000; // 15 minutos
 
 function formatDateTime(date: Date): string {
   // Converter para fuso horário de São Paulo usando date-fns-tz
@@ -53,7 +53,12 @@ export async function GET(
     const cachedData = cache.get(cacheKey);
     if (!forceRefresh && cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (24h)`);
-      return NextResponse.json(cachedData.data);
+      return NextResponse.json(cachedData.data, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800', // 15 min cache
+          'X-Cache': 'HIT'
+        }
+      });
     }
 
     console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
@@ -162,7 +167,12 @@ export async function GET(
     });
 
     console.log(`[API] Processamento concluído em ${Date.now() - startTime}ms`);
-    return NextResponse.json(formattedData);
+    return NextResponse.json(formattedData, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800', // 15 min cache
+        'X-Cache': 'MISS'
+      }
+    });
   } catch (error) {
     console.error('Error fetching spread history:', error);
     return NextResponse.json([]);

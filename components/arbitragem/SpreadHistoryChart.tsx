@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface SpreadHistoryChartProps {
@@ -29,45 +29,83 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
   const [data, setData] = useState<SpreadData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+
+  const fetchData = useCallback(async (isRetry = false) => {
+    if (isRetry) {
+      setRetryCount(prev => prev + 1);
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Usar a API corrigida com timezone
+      const response = await fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`);
+      
+      if (response.status === 429) {
+        // Too Many Requests - aguardar e tentar novamente
+        if (retryCount < 3) {
+          console.log(`[Retry] Too Many Requests, tentando novamente em 5s... (${retryCount + 1}/3)`);
+          setTimeout(() => fetchData(true), 5000);
+          return;
+        } else {
+          throw new Error('Muitas requisições. Tente novamente em alguns minutos.');
+        }
+      }
+      
+      if (!response.ok) {
+        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+      }
+      
+      const rawData: SpreadData[] = await response.json();
+      
+      // A API já retorna o timestamp formatado, não precisamos reformatar
+      setData(rawData);
+      setRetryCount(0); // Reset retry count on success
+    } catch (err: any) {
+      console.error('Erro ao buscar dados:', err);
+      setError(err.message || 'Ocorreu um erro.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [symbol, retryCount]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        // Usar a API corrigida com timezone
-        const response = await fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`);
-        if (!response.ok) {
-          throw new Error('Falha ao buscar o histórico de spread.');
-        }
-        const rawData: SpreadData[] = await response.json();
-        
-        // A API já retorna o timestamp formatado, não precisamos reformatar
-        setData(rawData);
-      } catch (err: any) {
-        setError(err.message || 'Ocorreu um erro.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     if (symbol) {
       fetchData();
     }
-  }, [symbol]);
+  }, [symbol, fetchData]);
+
+  // Função para tentar novamente manualmente
+  const handleRetry = () => {
+    setRetryCount(0);
+    fetchData();
+  };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[300px]">
-        <div className="text-gray-400">Carregando dados...</div>
+        <div className="text-center text-gray-400">
+          <div className="mb-2">🔄 Carregando dados...</div>
+          {retryCount > 0 && (
+            <div className="text-sm">Tentativa {retryCount}/3</div>
+          )}
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-[300px]">
-        <div className="text-red-400">{error}</div>
+      <div className="flex flex-col items-center justify-center h-[300px]">
+        <div className="text-red-400 mb-4">{error}</div>
+        <button 
+          onClick={handleRetry}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+        >
+          Tentar Novamente
+        </button>
       </div>
     );
   }
