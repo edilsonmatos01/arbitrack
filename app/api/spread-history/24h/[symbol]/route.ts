@@ -17,10 +17,39 @@ export const revalidate = 0;
 const cache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
+// Função robusta para formatação de data/hora com fallback
 function formatDateTime(date: Date): string {
-  // Converter para fuso horário de São Paulo usando date-fns-tz
-  const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
-  return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
+  try {
+    // Log para debug
+    console.log(`[Timezone Debug] Data original: ${date.toISOString()}`);
+    console.log(`[Timezone Debug] TZ ambiente: ${process.env.TZ || 'não definido'}`);
+    
+    // Converter para fuso horário de São Paulo usando date-fns-tz
+    const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
+    console.log(`[Timezone Debug] Data convertida: ${saoPauloTime.toISOString()}`);
+    
+    const formatted = format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
+    console.log(`[Timezone Debug] Data formatada: ${formatted}`);
+    
+    return formatted;
+  } catch (error) {
+    console.error('[Timezone Error] Erro na conversão de timezone:', error);
+    
+    // Fallback: conversão manual UTC-3
+    const utcDate = new Date(date.getTime());
+    const brazilOffset = 3 * 60 * 60 * 1000; // 3 horas em milissegundos
+    const brazilTime = new Date(utcDate.getTime() - brazilOffset);
+    
+    const day = String(brazilTime.getUTCDate()).padStart(2, '0');
+    const month = String(brazilTime.getUTCMonth() + 1).padStart(2, '0');
+    const hours = String(brazilTime.getUTCHours()).padStart(2, '0');
+    const minutes = String(brazilTime.getUTCMinutes()).padStart(2, '0');
+    
+    const fallbackFormatted = `${day}/${month} - ${hours}:${minutes}`;
+    console.log(`[Timezone Debug] Fallback formatado: ${fallbackFormatted}`);
+    
+    return fallbackFormatted;
+  }
 }
 
 function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
@@ -60,6 +89,8 @@ export async function GET(
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+    console.log(`[Timezone Debug] Agora (UTC): ${now.toISOString()}`);
+    console.log(`[Timezone Debug] Início (UTC): ${start.toISOString()}`);
     console.log(`Buscando dados para ${symbol} de ${start.toISOString()} até ${now.toISOString()}`);
 
     // Buscar dados do banco
@@ -99,6 +130,9 @@ export async function GET(
     // Criar datas no fuso horário de São Paulo corretamente
     const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
     const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
+    
+    console.log(`[Timezone Debug] Agora (SP): ${nowInSaoPaulo.toISOString()}`);
+    console.log(`[Timezone Debug] Início (SP): ${startInSaoPaulo.toISOString()}`);
     
     let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
     const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
@@ -161,6 +195,9 @@ export async function GET(
     });
 
     console.log(`[API] Processamento concluído em ${Date.now() - startTime}ms`);
+    console.log(`[API] Primeiro timestamp: ${formattedData[0]?.timestamp || 'N/A'}`);
+    console.log(`[API] Último timestamp: ${formattedData[formattedData.length - 1]?.timestamp || 'N/A'}`);
+    
     return NextResponse.json(formattedData);
   } catch (error) {
     console.error('Error fetching spread history:', error);
