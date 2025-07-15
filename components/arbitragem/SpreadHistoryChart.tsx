@@ -19,14 +19,20 @@ interface SpreadData {
   spread: number;
 }
 
-// Função para converter timestamp UTC para horário de Brasília (UTC-3)
+// Função para converter timestamp UTC para horário de Brasília (UTC-3) com validação
 const convertToBrazilTime = (timestamp: string) => {
   try {
+    // Verificar se o timestamp é válido
+    if (!timestamp || !dayjs(timestamp).isValid()) {
+      console.warn('Timestamp inválido:', timestamp);
+      return 'Data inválida';
+    }
+
     // Converter de UTC para horário de Brasília
-    return dayjs(timestamp).tz('America/Sao_Paulo').format('HH:mm DD/MM');
+    return dayjs(timestamp).tz('America/Sao_Paulo').format('HH:mm - DD/MM');
   } catch (error) {
-    console.error('Erro ao converter timestamp:', error);
-    return timestamp; // Fallback para o valor original
+    console.error('Erro ao converter timestamp:', error, 'Timestamp:', timestamp);
+    return 'Data inválida';
   }
 };
 
@@ -59,12 +65,14 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
         }
         const rawData: SpreadData[] = await response.json();
         
-        // Converter timestamps de UTC para horário de Brasília (UTC-3)
+        // Converter timestamps de UTC para horário de Brasília (UTC-3) com validação
         // Necessário porque a Render roda em UTC, mas queremos exibir no horário brasileiro
-        const convertedData = rawData.map(item => ({
-          ...item,
-          timestamp: convertToBrazilTime(item.timestamp)
-        }));
+        const convertedData = rawData
+          .map(item => ({
+            ...item,
+            timestamp: convertToBrazilTime(item.timestamp)
+          }))
+          .filter(item => item.timestamp !== 'Data inválida'); // Remover pontos com data inválida
         
         setData(convertedData);
       } catch (err: any) {
@@ -120,7 +128,7 @@ export default function SpreadHistoryChart({ symbol }: SpreadHistoryChartProps) 
             dataKey="timestamp"
             stroke="#9CA3AF"
             tick={{ fill: '#9CA3AF' }}
-            // Timestamps convertidos para horário brasileiro (UTC-3)
+            // Timestamps convertidos para horário brasileiro (UTC-3) com validação
             interval="preserveStartEnd"
             angle={-45}
             textAnchor="end"
