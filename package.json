@@ -6,7 +6,7 @@
     "dev": "node server.js",
     "build": "next build",
     "build:next": "next build",
-    "start": "node server.js",
+    "start": "next start -H 0.0.0.0 -p ${PORT:-10000}",
     "lint": "next lint",
     "dev:tracker": "ts-node-dev --respawn --transpile-only --project tsconfig.server.json websocket-server.ts",
     "start:tracker": "node dist/websocket-server.js",
