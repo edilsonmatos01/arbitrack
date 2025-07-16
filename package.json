@@ -33,7 +33,10 @@
     "test:websocket": "ts-node scripts/test-websockets.ts",
     "monitor": "ts-node scripts/monitor-cron.ts",
     "build:monitor": "tsc -p tsconfig.scripts.json",
-    "start:monitor": "node dist/scripts/monitor-cron.js"
+    "start:monitor": "node dist/scripts/monitor-cron.js",
+    "vacuum": "ts-node scripts/vacuum-database.ts",
+    "vacuum:build": "tsc -p tsconfig.scripts.json scripts/vacuum-database.ts",
+    "vacuum:start": "node dist/scripts/vacuum-database.js"
   },
   "dependencies": {
     "@babel/core": "^7.27.4",
