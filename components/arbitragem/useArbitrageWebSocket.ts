@@ -43,6 +43,23 @@ export function useArbitrageWebSocket(enabled = true) {
   // após o desmonte, especialmente útil no Strict Mode do React.
   const isMounted = useRef(false);
 
+  // Função para garantir que opportunities seja sempre um array válido
+  const safeSetOpportunities = (newOpportunities: ArbitrageOpportunity[] | ((prev: ArbitrageOpportunity[]) => ArbitrageOpportunity[])) => {
+    try {
+      if (typeof newOpportunities === 'function') {
+        setOpportunities(prev => {
+          const result = newOpportunities(prev);
+          return Array.isArray(result) ? result : [];
+        });
+      } else {
+        setOpportunities(Array.isArray(newOpportunities) ? newOpportunities : []);
+      }
+    } catch (error) {
+      console.error('[WS Hook] Erro ao atualizar opportunities:', error);
+      setOpportunities([]);
+    }
+  };
+
   const getWebSocketURL = () => {
     // A URL agora é lida da variável de ambiente, que é definida no processo de build.
     const wsURL = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
@@ -101,7 +118,7 @@ export function useArbitrageWebSocket(enabled = true) {
           console.log('[DEBUG] buyAt:', message.buyAt);
           console.log('[DEBUG] sellAt:', message.sellAt);
           
-          setOpportunities((prev) => {
+          safeSetOpportunities((prev) => {
             console.log('[DEBUG] Adicionando oportunidade ao estado. Estado anterior:', prev.length);
             // Remove oportunidades antigas do mesmo par
             const filtered = prev.filter(p => 
@@ -168,5 +185,8 @@ export function useArbitrageWebSocket(enabled = true) {
     };
   }, [enabled]);
 
-  return { opportunities, livePrices };
+  return { 
+    opportunities: Array.isArray(opportunities) ? opportunities : [], 
+    livePrices: livePrices || {} 
+  };
 } 

@@ -75,10 +75,10 @@ export async function GET(
         timestamp: {
           gte: start,
           lte: now
-        },
-        // Garante que só pegamos registros com preços válidos
-        spotPrice: { gt: 0 },
-        futuresPrice: { gt: 0 }
+        }
+        // Removido filtro restritivo para debug
+        // spotPrice: { gt: 0 },
+        // futuresPrice: { gt: 0 }
       },
       select: {
         timestamp: true,
@@ -91,6 +91,11 @@ export async function GET(
     });
 
     console.log(`Encontrados ${priceHistory.length} registros para ${symbol} em ${Date.now() - startTime}ms`);
+    
+    // Log dos primeiros registros para debug
+    if (priceHistory.length > 0) {
+      console.log(`Primeiros 3 registros de ${symbol}:`, priceHistory.slice(0, 3));
+    }
 
     if (priceHistory.length === 0) {
       // Salvar resultado vazio no cache
@@ -150,10 +155,10 @@ export async function GET(
     const formattedData = Array.from(groupedData.entries())
       .map(([timestamp, data]) => ({
         timestamp,
-        gateio_price: data.spot.count > 0 ? data.spot.sum / data.spot.count : 0,
-        mexc_price: data.futures.count > 0 ? data.futures.sum / data.futures.count : 0
+        gateio_price: data.spot.count > 0 ? data.spot.sum / data.spot.count : null,
+        mexc_price: data.futures.count > 0 ? data.futures.sum / data.futures.count : null
       }))
-      .filter(item => item.gateio_price > 0 && item.mexc_price > 0)
+      .filter(item => item.gateio_price !== null || item.mexc_price !== null) // Mais flexível
       .sort((a, b) => {
         const [dateA, timeA] = a.timestamp.split(' - ');
         const [dateB, timeB] = b.timestamp.split(' - ');

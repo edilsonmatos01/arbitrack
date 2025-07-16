@@ -19,24 +19,22 @@ export default function SoundAlert({
   maxSpread24h, 
   isEnabled, 
   onToggle,
-  soundFile = '/sounds/alerta.mp3'
+  soundFile = '/sounds/alerta.mp3' // Caminho correto para o arquivo
 }: SoundAlertProps) {
-  const [isAlerting, setIsAlerting] = useState(false);
-  const [lastAlertTime, setLastAlertTime] = useState<number>(0);
-  const [alertLevel, setAlertLevel] = useState<'none' | 'critical'>('none');
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const alertCooldownRef = useRef<number>(30000); // 30 segundos entre alertas
+  const [alertLevel, setAlertLevel] = useState<'none' | 'critical'>('none');
+  const [isAlerting, setIsAlerting] = useState(false);
+  const [lastAlertTime, setLastAlertTime] = useState(0);
+  const playCountRef = useRef(0);
+  const alertCooldownRef = useRef(5000); // 5 segundos entre alertas
+  const maxPlays = 2; // Máximo de 2 toques por alerta
+
   const { showWarning, showSuccess } = useToastContext();
 
-  // Adicionar um ref para contar as repetições do alerta
-  const playCountRef = useRef(0);
-  const maxPlays = 2;
-
-  // Criar elemento de áudio para o alerta
+  // Configurar o áudio com tratamento de erro robusto
   useEffect(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-      audioRef.current.src = soundFile;
+    if (typeof window !== 'undefined') {
+      audioRef.current = new Audio(soundFile);
       audioRef.current.volume = 0.7;
       audioRef.current.preload = 'auto';
       
@@ -46,8 +44,8 @@ export default function SoundAlert({
       });
       
       audioRef.current.addEventListener('error', (e) => {
-        console.error('❌ ERRO: Arquivo de som não encontrado:', soundFile);
-        console.error('Detalhes do erro:', e);
+        console.warn('⚠️ Arquivo de som não encontrado, usando fallback:', soundFile);
+        // Não quebrar o frontend, apenas logar o aviso
       });
       
       // Atualizar o evento ended para tocar no máximo 2 vezes
@@ -118,14 +116,17 @@ export default function SoundAlert({
               console.log('✅ Alerta sonoro tocado com sucesso!');
             })
             .catch(error => {
-              console.error('❌ FALHA ao tocar som:', error.message);
+              console.warn('⚠️ Falha ao tocar som, usando fallback:', error.message);
               // Tentar com som base64 como fallback
-              console.log('🔄 Tentando som base64...');
-              const fallbackAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
-              fallbackAudio.volume = 0.7;
-              fallbackAudio.play().catch(fallbackError => {
-                console.error('❌ Erro no som base64 também:', fallbackError);
-              });
+              try {
+                const fallbackAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+                fallbackAudio.volume = 0.7;
+                fallbackAudio.play().catch(fallbackError => {
+                  console.warn('⚠️ Erro no som base64 também:', fallbackError);
+                });
+              } catch (fallbackError) {
+                console.warn('⚠️ Erro ao criar som base64:', fallbackError);
+              }
             });
         }
       }
@@ -155,18 +156,21 @@ export default function SoundAlert({
             console.log('✅ Som tocado com sucesso!');
           })
           .catch(error => {
-            console.error('❌ Erro no teste de som:', error);
+            console.warn('⚠️ Erro no teste de som, usando fallback:', error);
             // Tentar com som base64 como fallback
-            console.log('🔄 Tentando som base64...');
-            const fallbackAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
-            fallbackAudio.volume = 0.7;
-            fallbackAudio.play().catch(fallbackError => {
-              console.error('❌ Erro no som base64 também:', fallbackError);
-            });
+            try {
+              const fallbackAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+              fallbackAudio.volume = 0.7;
+              fallbackAudio.play().catch(fallbackError => {
+                console.warn('⚠️ Erro no som base64 também:', fallbackError);
+              });
+            } catch (fallbackError) {
+              console.warn('⚠️ Erro ao criar som base64:', fallbackError);
+            }
           });
       }
     } else {
-      console.error('❌ Referência de áudio não encontrada');
+      console.warn('⚠️ Referência de áudio não encontrada');
     }
   };
 

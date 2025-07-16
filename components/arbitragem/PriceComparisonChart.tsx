@@ -36,7 +36,21 @@ interface CustomTooltipProps {
 const PRICE_HISTORY_LIMIT = 48; // 24 horas com intervalos de 30 minutos
 const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutos para atualizações WebSocket
 
+// Cache local por símbolo (dura 5 minutos)
+const localCache = new Map<string, { data: PriceData[]; timestamp: number }>();
+// @ts-ignore
+if (typeof window !== 'undefined') window.PriceComparisonChart_localCache = localCache;
+const CACHE_DURATION = 5 * 60 * 1000;
 
+// Skeleton loader para feedback visual
+function SkeletonChart() {
+  return (
+    <div className="w-full h-[400px] bg-gray-900 rounded-lg border border-gray-800 p-4 animate-pulse flex flex-col justify-center items-center">
+      <div className="w-3/4 h-8 bg-gray-700 rounded mb-6" />
+      <div className="w-full h-64 bg-gray-800 rounded" />
+    </div>
+  );
+}
 
 function formatDateTime(timestamp: string) {
   return timestamp; // Retorna o timestamp completo no formato "DD/MM - HH:mm"
@@ -96,12 +110,19 @@ export default function PriceComparisonChart({ symbol }: PriceComparisonChartPro
     return newDate;
   };
 
-  // Carrega dados históricos da API
+  // Carrega dados históricos da API com cache local
   const loadInitialData = useCallback(async () => {
+    const cacheKey = symbol;
+    const cached = localCache.get(cacheKey);
+    setLoading(true);
+    setError(null);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+      setData(cached.data);
+      setLastUpdate(new Date(cached.timestamp));
+      setLoading(false);
+      return;
+    }
     try {
-      setLoading(true);
-      setError(null);
-      
       console.log(`[PriceChart] Buscando dados históricos para ${symbol}...`);
       const response = await fetch(`/api/price-comparison/${encodeURIComponent(symbol)}`);
       
@@ -118,6 +139,8 @@ export default function PriceComparisonChart({ symbol }: PriceComparisonChartPro
       if (Array.isArray(result)) {
         if (result.length > 0) {
           setData(result);
+          setLastUpdate(new Date());
+          localCache.set(cacheKey, { data: result, timestamp: Date.now() });
           console.log(`[PriceChart] ✅ Dados históricos carregados: ${result.length} pontos`);
           console.log(`[PriceChart] Primeiro ponto:`, result[0]);
           console.log(`[PriceChart] Último ponto:`, result[result.length - 1]);
@@ -258,14 +281,7 @@ export default function PriceComparisonChart({ symbol }: PriceComparisonChartPro
   }, [updatePriceHistory]);
 
   if (loading && data.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-[400px] bg-gray-900 rounded-lg border border-gray-800">
-        <div className="text-center text-gray-400">
-          <div className="mb-2">🔄 Carregando histórico de preços...</div>
-          <div className="text-sm">Buscando dados das últimas 24 horas para {symbol}</div>
-        </div>
-      </div>
-    );
+    return <SkeletonChart />;
   }
 
   if (error) {

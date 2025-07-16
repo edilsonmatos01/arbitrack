@@ -11,8 +11,63 @@ import {
 } from '@/components/ui/dialog';
 import SoundAlert from './SoundAlert';
 import { useSoundAlerts } from './useSoundAlerts';
-import SpreadHistoryChart from './SpreadHistoryChart';
-import PriceComparisonChart from './PriceComparisonChart';
+import PriceComparisonChartCanvas from './PriceComparisonChartCanvas';
+import Spread24hChartCanvas from './Spread24hChartCanvas';
+
+// Funções de prefetch dos gráficos
+function prefetchSpread24h(symbol: string) {
+  // @ts-ignore
+  if (typeof window !== 'undefined' && window.Spread24hChart_localCache) {
+    const cache = window.Spread24hChart_localCache;
+    const CACHE_DURATION = 5 * 60 * 1000;
+    const cached = cache.get(symbol);
+    if (!cached || (Date.now() - cached.timestamp) >= CACHE_DURATION) {
+      fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`)
+        .then(res => {
+          if (!res.ok) {
+            console.warn(`[PREFETCH] Erro ao buscar spread-history para ${symbol}: ${res.status}`);
+            return null;
+          }
+          return res.json();
+        })
+        .then(result => {
+          if (Array.isArray(result)) {
+            cache.set(symbol, { data: result, timestamp: Date.now() });
+          }
+        })
+        .catch(err => {
+          console.warn(`[PREFETCH] Erro de rede ao buscar spread-history para ${symbol}:`, err.message);
+        });
+    }
+  }
+}
+
+function prefetchPriceComparison(symbol: string) {
+  // @ts-ignore
+  if (typeof window !== 'undefined' && window.PriceComparisonChart_localCache) {
+    const cache = window.PriceComparisonChart_localCache;
+    const CACHE_DURATION = 5 * 60 * 1000;
+    const cached = cache.get(symbol);
+    if (!cached || (Date.now() - cached.timestamp) >= CACHE_DURATION) {
+      fetch(`/api/price-comparison/${encodeURIComponent(symbol)}`)
+        .then(res => {
+          if (!res.ok) {
+            console.warn(`[PREFETCH] Erro ao buscar price-comparison para ${symbol}: ${res.status}`);
+            return null;
+          }
+          return res.json();
+        })
+        .then(result => {
+          if (Array.isArray(result)) {
+            cache.set(symbol, { data: result, timestamp: Date.now() });
+          }
+        })
+        .catch(err => {
+          console.warn(`[PREFETCH] Erro de rede ao buscar price-comparison para ${symbol}:`, err.message);
+        });
+    }
+  }
+}
 
 interface MaxSpreadCellProps {
   symbol: string;
@@ -52,7 +107,9 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
         const response = await fetch(`/api/spreads/${encodeURIComponent(symbol)}/max`);
         
         if (!response.ok) {
-          throw new Error('Falha ao buscar dados');
+          console.warn(`[MaxSpreadCell] Erro ao buscar spread máximo para ${symbol}: ${response.status} ${response.statusText}`);
+          setStats(null);
+          return;
         }
         
         const data: SpreadStats = await response.json();
@@ -67,7 +124,7 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
         
         cache.set(symbol, { data, timestamp: Date.now() });
       } catch (error) {
-        console.error(`[MaxSpreadCell] Erro ao buscar spread máximo para ${symbol}:`, error);
+        console.warn(`[MaxSpreadCell] Erro de rede ao buscar spread máximo para ${symbol}:`, error instanceof Error ? error.message : 'Erro desconhecido');
         setStats(null);
       } finally {
         setIsLoading(false);
@@ -83,6 +140,18 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
       setChartType('spread');
     }
   }, [isModalOpen]);
+
+  // Pré-carregar dados dos gráficos ao abrir o modal
+  useEffect(() => {
+    if (isModalOpen) {
+      // @ts-ignore
+      window.Spread24hChart_localCache = window.Spread24hChart_localCache || new Map();
+      // @ts-ignore
+      window.PriceComparisonChart_localCache = window.PriceComparisonChart_localCache || new Map();
+      prefetchSpread24h(symbol);
+      prefetchPriceComparison(symbol);
+    }
+  }, [isModalOpen, symbol]);
 
   const getSpreadColor = (spread: number) => {
     if (spread > 2) return 'text-green-400';
@@ -124,55 +193,31 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
               <ChartIcon className="h-5 w-5" />
             </button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl bg-dark-card border-gray-700 text-white">
+          <DialogContent className="max-w-6xl w-[90vw] h-[80vh] bg-dark-card border-gray-700 text-white">
             <DialogHeader>
               <div className="flex items-center justify-between">
                 <DialogTitle>Análise de {symbol}</DialogTitle>
                 <div className="flex bg-gray-800 rounded-lg p-1">
                   <button
+                    className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'spread' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                     onClick={() => setChartType('spread')}
-                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                      chartType === 'spread'
-                        ? 'bg-custom-cyan text-black font-semibold'
-                        : 'text-gray-300 hover:text-white'
-                    }`}
                   >
                     Spread 24h
                   </button>
                   <button
+                    className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'comparison' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                     onClick={() => setChartType('comparison')}
-                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                      chartType === 'comparison'
-                        ? 'bg-custom-cyan text-black font-semibold'
-                        : 'text-gray-300 hover:text-white'
-                    }`}
                   >
                     Spot vs Futures
                   </button>
                 </div>
               </div>
             </DialogHeader>
-            
-            <div className="mt-4">
-              {/* Renderiza o gráfico apenas se o modal estiver aberto */}
-              {isModalOpen && (
-                <>
-                  {chartType === 'spread' ? (
-                    <div>
-                      <div className="mb-3 text-sm text-gray-400">
-                        Histórico de spread máximo das últimas 24 horas
-                      </div>
-                      <SpreadHistoryChart symbol={symbol} />
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="mb-3 text-sm text-gray-400">
-                        Comparação de preços spot vs futures (pontos a cada 30 min)
-                      </div>
-                      <PriceComparisonChart symbol={symbol} />
-                    </div>
-                  )}
-                </>
+            <div className="flex-1 min-h-0 mt-4">
+              {chartType === 'spread' ? (
+                <Spread24hChartCanvas symbol={symbol} />
+              ) : (
+                <PriceComparisonChartCanvas symbol={symbol} />
               )}
             </div>
           </DialogContent>

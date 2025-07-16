@@ -255,6 +255,15 @@ function getExchangeSymbol(symbol: string, exchange: string, marketType: 'spot' 
   return base;
 }
 
+// Adicionar declaração global para evitar erro de tipo do window
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare global {
+  interface Window {
+    Spread24hChart_localCache?: any;
+    PriceComparisonChart_localCache?: any;
+  }
+}
+
 export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps) {
   const [arbitrageType, setArbitrageType] = useState<'intra'|'inter'>('inter');
   const [direction, setDirection] = useState<'SPOT_TO_FUTURES' | 'FUTURES_TO_SPOT' | 'ALL'>('ALL');
@@ -295,36 +304,53 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   // Adicionar estado para quantidade máxima de oportunidades
   const [maxOpportunities, setMaxOpportunities] = useState(10);
 
+  // Estado para logs visuais de erro de fetch
+  const [fetchErrorLog, setFetchErrorLog] = useState<string | null>(null);
 
+  // Função utilitária para fetch com log visual
+  async function fetchWithLog(url: string, options?: RequestInit) {
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const errorText = await response.text();
+        setFetchErrorLog(`Erro ao acessar ${url}: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(`Erro ao acessar ${url}: ${response.status} ${response.statusText}`);
+      }
+      return response;
+    } catch (err: any) {
+      setFetchErrorLog(`Erro de rede ao acessar ${url}: ${err.message}`);
+      throw err;
+    }
+  }
 
   // Carregar posições do banco de dados na inicialização
   useEffect(() => {
     const loadPositions = async () => {
       setIsLoadingPositions(true);
       try {
-        const response = await fetch('/api/positions');
+        const response = await fetchWithLog('/api/positions');
         if (response.ok) {
           const savedPositions = await response.json();
-          setPositions(savedPositions);
+          setPositions(safeArray(savedPositions));
         } else {
-          console.error('Erro ao carregar posições do banco de dados');
+          setError('Erro ao carregar posições do banco de dados');
           // Fallback para localStorage se a API falhar
           const localPositions = localStorage.getItem('arbitrage-positions');
           if (localPositions) {
             const parsedPositions = JSON.parse(localPositions);
-            setPositions(parsedPositions);
+            setPositions(safeArray(parsedPositions));
           }
         }
       } catch (error) {
-        console.error('Erro ao carregar posições:', error);
+        setError('Erro de conexão ao carregar posições');
         // Fallback para localStorage se a API falhar
         const localPositions = localStorage.getItem('arbitrage-positions');
         if (localPositions) {
           try {
             const parsedPositions = JSON.parse(localPositions);
-            setPositions(parsedPositions);
+            setPositions(safeArray(parsedPositions));
           } catch (parseError) {
-            console.error('Erro ao parsear posições do localStorage:', parseError);
+            setError('Erro ao ler posições do localStorage');
           }
         }
       } finally {
@@ -343,6 +369,70 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   const [error, setError] = useState<string|null>(null);
   const [successMessage, setSuccessMessage] = useState<string|null>(null);
 
+  // Fallback seguro para oportunidades e posições
+  const opportunities: any[] = safeArray<any>(opportunitiesRaw);
+  const safePositions = safeArray(positions);
+
+  // Função utilitária para garantir array seguro
+  function safeArray<T>(data: any): T[] {
+    return Array.isArray(data) ? data : [];
+  }
+
+  // Prefetch dos dados históricos dos gráficos para todos os pares visíveis
+  useEffect(() => {
+    // Determina os símbolos visíveis na tabela
+    const symbols = opportunities
+      .filter(opp => {
+        const isSpotBuyFuturesSell = opp.buyAt && opp.sellAt && opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
+        const spread = opp.buyAt && opp.sellAt ? ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100 : 0;
+        if (isBigArb) {
+          return isSpotBuyFuturesSell && BIG_ARB_PAIRS.includes(opp.baseSymbol);
+        }
+        return isSpotBuyFuturesSell && spread >= minSpread;
+      })
+      .slice(0, maxOpportunities)
+      .map(opp => opp.baseSymbol);
+
+    // Prefetch Spread 24h com tratamento de erro
+    symbols.forEach(symbol => {
+      fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`)
+        .then(res => {
+          if (!res.ok) {
+            console.warn(`[PREFETCH] Erro ao buscar spread-history para ${symbol}: ${res.status}`);
+            return null;
+          }
+          return res.json();
+        })
+        .then(data => {
+          if (data) {
+            window.Spread24hChart_localCache = window.Spread24hChart_localCache || new Map();
+            window.Spread24hChart_localCache.set(symbol, { data, timestamp: Date.now() });
+          }
+        })
+        .catch(err => {
+          console.warn(`[PREFETCH] Erro de rede ao buscar spread-history para ${symbol}:`, err.message);
+        });
+
+      // Prefetch Spot vs Futures com tratamento de erro
+      fetch(`/api/price-comparison/${encodeURIComponent(symbol)}`)
+        .then(res => {
+          if (!res.ok) {
+            console.warn(`[PREFETCH] Erro ao buscar price-comparison para ${symbol}: ${res.status}`);
+            return null;
+          }
+          return res.json();
+        })
+        .then(data => {
+          if (data) {
+            window.PriceComparisonChart_localCache = window.PriceComparisonChart_localCache || new Map();
+            window.PriceComparisonChart_localCache.set(symbol, { data, timestamp: Date.now() });
+          }
+        })
+        .catch(err => {
+          console.warn(`[PREFETCH] Erro de rede ao buscar price-comparison para ${symbol}:`, err.message);
+        });
+    });
+  }, [opportunities, isBigArb, minSpread, maxOpportunities]);
 
 
   function calcularLucro(spreadValue: number) { 
@@ -470,7 +560,7 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
 
         // Tentar salvar no banco também
         try {
-          await fetch('/api/operation-history', {
+          await fetchWithLog('/api/operation-history', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(historyData)
@@ -510,7 +600,7 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
       console.log('📋 Ordens de fechamento preparadas:', closeOrders);
 
       // 2. Executar ordens de fechamento
-      const orderResponse = await fetch('/api/trading/execute-order', {
+      const orderResponse = await fetchWithLog('/api/trading/execute-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -576,7 +666,7 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
       // Tentar salvar no banco também
       try {
         console.log('📊 Salvando no histórico (API):', historyData);
-        const historyResponse = await fetch('/api/operation-history', {
+        const historyResponse = await fetchWithLog('/api/operation-history', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(historyData)
@@ -719,7 +809,7 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
 
         // 2. Executar ordens reais nas exchanges
         console.log('📡 Enviando requisição para API de trading...');
-        const orderResponse = await fetch('/api/trading/execute-order', {
+        const orderResponse = await fetchWithLog('/api/trading/execute-order', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -776,7 +866,7 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
       }
 
       // 4. Salvar posição no banco de dados
-      const response = await fetch('/api/positions', {
+      const response = await fetchWithLog('/api/positions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -897,8 +987,25 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
     };
   };
 
+  // Exibir erro global na interface se houver erro de fetch
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 bg-gray-900 rounded-lg border border-gray-800">
+        <div className="text-center text-red-400">
+          <div className="mb-2">⚠️ {error}</div>
+          <div className="text-sm text-gray-400">Verifique sua conexão ou tente recarregar a página.</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {fetchErrorLog && (
+        <div style={{position: 'fixed', top: 0, left: 0, width: '100%', zIndex: 9999}} className="bg-red-900 text-red-200 p-3 text-center font-mono text-sm">
+          <b>ERRO DE FETCH:</b> {fetchErrorLog}
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-semibold text-white">
@@ -988,49 +1095,75 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                 <th className="py-3 px-6 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-700">
-              {opportunitiesRaw
-                .filter(opp => {
-                  const isSpotBuyFuturesSell = opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
-                  const spread = ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100;
-                  
-                  // Para Big Arb, filtra apenas os pares específicos e não aplica filtro de spread mínimo
-                  if (isBigArb) {
-                    return isSpotBuyFuturesSell && BIG_ARB_PAIRS.includes(opp.baseSymbol);
+            {fetchErrorLog ? (
+              <tbody className="divide-y divide-gray-700">
+                <tr>
+                  <td colSpan={6} className="py-4 px-6 text-center text-red-400">
+                    <AlertTriangle className="h-5 w-5 inline-block mr-2" />
+                    Não foi possível carregar as oportunidades. Verifique sua conexão ou tente recarregar a página.<br/>
+                    <span className="text-xs text-red-300">{fetchErrorLog}</span>
+                  </td>
+                </tr>
+              </tbody>
+            ) : (
+              <tbody className="divide-y divide-gray-700">
+                {(() => {
+                  try {
+                    const safeOpps = safeArray(opportunities);
+                    if (!Array.isArray(safeOpps)) return null;
+                    return (safeOpps as any[])
+                      .filter((opp: any) => {
+                        const isSpotBuyFuturesSell = opp.buyAt && opp.sellAt && opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
+                        const spread = opp.buyAt && opp.sellAt ? ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100 : 0;
+                        if (isBigArb) {
+                          return isSpotBuyFuturesSell && opp.baseSymbol && BIG_ARB_PAIRS.includes(opp.baseSymbol);
+                        }
+                        return isSpotBuyFuturesSell && spread >= minSpread;
+                      })
+                      .sort((a: any, b: any) => {
+                        const spreadA = a.buyAt && a.sellAt ? ((a.sellAt.price - a.buyAt.price) / a.buyAt.price) * 100 : 0;
+                        const spreadB = b.buyAt && b.sellAt ? ((b.sellAt.price - b.buyAt.price) / b.buyAt.price) * 100 : 0;
+                        return spreadB - spreadA;
+                      })
+                      .slice(0, maxOpportunities)
+                      .map((opp: any) => (
+                        <OpportunityRow
+                          key={`${opp.baseSymbol}-${opp.buyAt.exchange}-${opp.sellAt.exchange}`}
+                          opportunity={{
+                            symbol: opp.baseSymbol,
+                            compraExchange: opp.buyAt.exchange,
+                            compraPreco: opp.buyAt.price,
+                            vendaExchange: opp.sellAt.exchange,
+                            vendaPreco: opp.sellAt.price,
+                            spread: ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100,
+                            tipo: 'inter',
+                            directionApi: opp.arbitrageType && opp.arbitrageType.includes('spot_to_futures') ? 'SPOT_TO_FUTURES' : 'FUTURES_TO_SPOT',
+                            maxSpread24h: null,
+                            buyAtMarketType: opp.buyAt.marketType,
+                            sellAtMarketType: opp.sellAt.marketType,
+                          }}
+                          livePrices={livePrices}
+                          formatPrice={formatPrice}
+                          getSpreadDisplayClass={getSpreadDisplayClass}
+                          calcularLucro={calcularLucro}
+                          handleCadastrarPosicao={handleCadastrarPosicao}
+                        />
+                      ));
+                  } catch (err) {
+                    console.error('Erro inesperado ao renderizar oportunidades:', err);
+                    return (
+                      <tr>
+                        <td colSpan={6} className="py-4 px-6 text-center text-red-400">
+                          <AlertTriangle className="h-5 w-5 inline-block mr-2" />
+                          Erro inesperado ao renderizar oportunidades.<br/>
+                          <span className="text-xs text-red-300">{String(err)}</span>
+                        </td>
+                      </tr>
+                    );
                   }
-                  
-                  return isSpotBuyFuturesSell && spread >= minSpread;
-                })
-                .sort((a, b) => {
-                  const spreadA = ((a.sellAt.price - a.buyAt.price) / a.buyAt.price) * 100;
-                  const spreadB = ((b.sellAt.price - b.buyAt.price) / b.buyAt.price) * 100;
-                  return spreadB - spreadA;
-                })
-                .slice(0, maxOpportunities)
-                .map((opp) => (
-                  <OpportunityRow
-                    key={`${opp.baseSymbol}-${opp.buyAt.exchange}-${opp.sellAt.exchange}`}
-                    opportunity={{
-                      symbol: opp.baseSymbol,
-                      compraExchange: opp.buyAt.exchange,
-                      compraPreco: opp.buyAt.price,
-                      vendaExchange: opp.sellAt.exchange,
-                      vendaPreco: opp.sellAt.price,
-                      spread: ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100,
-                      tipo: 'inter',
-                      directionApi: opp.arbitrageType.includes('spot_to_futures') ? 'SPOT_TO_FUTURES' : 'FUTURES_TO_SPOT',
-                      maxSpread24h: null,
-                      buyAtMarketType: opp.buyAt.marketType,
-                      sellAtMarketType: opp.sellAt.marketType,
-                    }}
-                    livePrices={livePrices}
-                    formatPrice={formatPrice}
-                    getSpreadDisplayClass={getSpreadDisplayClass}
-                    calcularLucro={calcularLucro}
-                    handleCadastrarPosicao={handleCadastrarPosicao}
-                  />
-                ))}
-            </tbody>
+                })()}
+              </tbody>
+            )}
           </table>
         </div>
       </div>
@@ -1038,7 +1171,7 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
 
 
       {/* Seção de Posições Abertas */}
-      {(positions.length > 0 || isLoadingPositions) && (
+      {(safePositions.length > 0 || isLoadingPositions) && (
         <div className="bg-dark-card p-6 rounded-lg shadow">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-white">Posições Abertas</h2>
@@ -1051,7 +1184,7 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            {positions.map((position) => {
+            {(safePositions as Position[]).map((position: Position) => {
               const { totalPnL, pnlPercent, currentSpotPrice, currentFuturesPrice, spotPnL, futuresPnL, pnlSpot, pnlFutures } = calculatePnL(position);
               const entrySpread = ((position.futuresEntry - position.spotEntry) / position.spotEntry) * 100;
               const currentSpread = ((currentFuturesPrice - currentSpotPrice) / currentSpotPrice) * 100;

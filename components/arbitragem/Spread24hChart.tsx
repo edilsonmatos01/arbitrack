@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   LineChart,
@@ -10,84 +8,108 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 interface Spread24hChartProps {
   symbol: string;
 }
 
 interface SpreadData {
-  timestamp: string;
-  spread: number;
+  timestamp: string; // ISO string
+  spread_percentage: number;
 }
 
-const SPREAD_HISTORY_LIMIT = 48; // 24 horas com intervalos de 30 minutos
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    value: number | null;
+    dataKey: string;
+    name: string;
+  }>;
+  label?: string;
+}
 
-const formatToBrazilTime = (timestamp: string) => {
-  if (dayjs(timestamp).isValid()) {
-    return dayjs(timestamp).tz('America/Sao_Paulo').format('DD/MM - HH:mm');
-  }
-  return timestamp;
-};
+// Cache local por símbolo (dura 5 minutos)
+const localCache = new Map<string, { data: SpreadData[]; timestamp: number }>();
+// @ts-ignore
+if (typeof window !== 'undefined') window.Spread24hChart_localCache = localCache;
+const CACHE_DURATION = 5 * 60 * 1000;
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+function formatTimestampToSaoPaulo(iso: string) {
+  const date = new Date(iso);
+  return date.toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).replace(', ', ' - ');
+}
+
+const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
   if (active && payload && payload.length > 0) {
     return (
       <div className="p-3 bg-gray-800 border border-gray-700 rounded-md shadow-lg">
-        <p className="text-white font-semibold mb-2">{formatToBrazilTime(label || '')}</p>
-        <p className="text-green-400">
-          {`Spread Máximo (%): ${typeof payload[0].value === 'number' ? payload[0].value.toFixed(2) : payload[0].value}`}
-        </p>
+        <p className="text-white font-semibold mb-2">{`Data: ${label}`}</p>
+        <p className="text-green-400">{`Spread (%): ${payload[0].value?.toFixed(2) ?? 'N/D'}`}</p>
       </div>
     );
   }
   return null;
 };
 
+// Skeleton loader para feedback visual
+function SkeletonChart() {
+  return (
+    <div className="w-full h-[400px] bg-gray-900 rounded-lg border border-gray-800 p-4 animate-pulse flex flex-col justify-center items-center">
+      <div className="w-3/4 h-8 bg-gray-700 rounded mb-6" />
+      <div className="w-full h-64 bg-gray-800 rounded" />
+    </div>
+  );
+}
+
 export default function Spread24hChart({ symbol }: Spread24hChartProps) {
   const [data, setData] = useState<SpreadData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  // Carrega dados históricos da API
-  const loadInitialData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await fetch(`/api/spread-history?symbol=${encodeURIComponent(symbol)}`);
-      if (!response.ok) {
-        throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
-      }
-      const result = await response.json();
-      if (Array.isArray(result)) {
-        setData(result.slice(-SPREAD_HISTORY_LIMIT));
-      } else {
-        throw new Error('Formato de resposta inválido');
-      }
+  // Função para buscar dados com cache local
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const cacheKey = symbol;
+    const cached = localCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+      setData(cached.data);
+      setLastUpdate(new Date(cached.timestamp));
       setLoading(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
+      return;
+    }
+    try {
+      const response = await fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`);
+      if (!response.ok) throw new Error('Erro ao buscar dados do spread 24h');
+      const result = await response.json();
+      if (!Array.isArray(result)) throw new Error('Formato de dados inválido');
+      setData(result);
+      setLastUpdate(new Date());
+      localCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    } catch (err: any) {
+      setError(err.message || 'Erro ao carregar dados');
+      setData([]);
+    } finally {
       setLoading(false);
     }
   }, [symbol]);
 
   useEffect(() => {
-    loadInitialData();
-  }, [symbol, loadInitialData]);
+    loadData();
+    const interval = setInterval(loadData, 5 * 60 * 1000); // Atualiza a cada 5 min
+    return () => clearInterval(interval);
+  }, [loadData]);
 
   if (loading && data.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-[400px] bg-gray-900 rounded-lg border border-gray-800">
-        <div className="text-center text-gray-400">
-          <div className="mb-2">🔄 Carregando histórico de spread...</div>
-          <div className="text-sm">Buscando dados das últimas 24 horas para {symbol}</div>
-        </div>
-      </div>
-    );
+    return <SkeletonChart />;
   }
 
   if (error) {
@@ -95,6 +117,7 @@ export default function Spread24hChart({ symbol }: Spread24hChartProps) {
       <div className="flex items-center justify-center h-[400px] bg-gray-900 rounded-lg border border-gray-800">
         <div className="text-center text-red-400">
           <div className="mb-2">⚠️ {error}</div>
+          <div className="text-sm text-gray-400">Verifique a API ou conexão</div>
         </div>
       </div>
     );
@@ -104,20 +127,33 @@ export default function Spread24hChart({ symbol }: Spread24hChartProps) {
     return (
       <div className="flex items-center justify-center h-[400px] bg-gray-900 rounded-lg border border-gray-800">
         <div className="text-center text-gray-400">
-          <div className="mb-2">📊 Coletando dados...</div>
+          <div className="mb-2">📊 Nenhum dado disponível</div>
+          <div className="text-sm">Aguarde a coleta de dados do spread</div>
         </div>
       </div>
     );
   }
 
-  const minSpread = Math.min(...data.map(d => d.spread));
-  const maxSpread = Math.max(...data.map(d => d.spread));
+  const minSpread = Math.min(...data.map(d => d.spread_percentage));
+  const maxSpread = Math.max(...data.map(d => d.spread_percentage));
   const padding = (maxSpread - minSpread) * 0.1;
 
   return (
     <div className="w-full h-[400px] bg-gray-900 rounded-lg border border-gray-800 p-4">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold text-white">Histórico de Spread Máximo (24h) - {symbol}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-white">Histórico de Spread Máximo (24h) - {symbol}</h3>
+        </div>
+        {lastUpdate && (
+          <div className="text-right">
+            <div className="text-sm text-gray-400">
+              Atualizado: {lastUpdate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+            </div>
+            <div className="text-xs text-gray-500">
+              {data.length} pontos coletados
+            </div>
+          </div>
+        )}
       </div>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 60 }}>
@@ -130,7 +166,12 @@ export default function Spread24hChart({ symbol }: Spread24hChartProps) {
             textAnchor="end"
             height={60}
             interval={Math.max(0, Math.floor(data.length / 12))}
-            tickFormatter={formatToBrazilTime}
+            tickFormatter={(value) => {
+              if (typeof value === 'string' && value.includes(' - ')) {
+                return value.split(' - ')[1]; // Mostra só o horário
+              }
+              return value;
+            }}
           />
           <YAxis
             stroke="#9CA3AF"
@@ -138,12 +179,12 @@ export default function Spread24hChart({ symbol }: Spread24hChartProps) {
             tickFormatter={(value) => `${value.toFixed(2)}%`}
             domain={[minSpread - padding, maxSpread + padding]}
           />
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={<CustomTooltip />} labelFormatter={formatTimestampToSaoPaulo} />
           <Line
             type="monotone"
-            dataKey="spread"
-            name="Spread Máximo (%)"
-            stroke="#10B981"
+            dataKey="spread_percentage"
+            name="Spread (%)"
+            stroke="#34D399"
             dot={{ r: 2 }}
             strokeWidth={2}
             connectNulls
