@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { LineChart as ChartIcon } from 'lucide-react';
 import {
   Dialog,
@@ -88,27 +88,53 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   const [isChartLoading, setIsChartLoading] = useState(false);
   const { isAlertEnabled, toggleAlert } = useSoundAlerts();
   
+  // Ref para manter o estado do modal durante re-renderizações
+  const modalStateRef = useRef({ isOpen: false, chartType: 'spread' as 'spread' | 'comparison' });
+  
   // Usar o novo hook otimizado
   const { data, getMaxSpread, isLoading, error } = useInitDataOptimized();
   const maxSpread = getMaxSpread(symbol);
+
+  // Sincronizar estado do modal com ref para evitar fechamento durante re-renderizações
+  useEffect(() => {
+    if (modalStateRef.current.isOpen !== isModalOpen) {
+      modalStateRef.current.isOpen = isModalOpen;
+    }
+  }, [isModalOpen]);
 
   // Reset chart type when modal closes
   useEffect(() => {
     if (!isModalOpen) {
       setChartType('spread');
       setIsChartLoading(false);
+      modalStateRef.current.chartType = 'spread';
     }
   }, [isModalOpen]);
 
   // Pré-carregar dados quando modal abrir - otimizado para carregamento rápido
   const handleModalOpen = () => {
     setIsModalOpen(true);
+    modalStateRef.current.isOpen = true;
     setIsChartLoading(true);
     
     // Carregamento instantâneo similar à outra plataforma
     setTimeout(() => {
       setIsChartLoading(false);
     }, 50); // Reduzido de 100ms para 50ms
+  };
+
+  // Função para lidar com mudanças no tipo de gráfico
+  const handleChartTypeChange = (newType: 'spread' | 'comparison') => {
+    setChartType(newType);
+    modalStateRef.current.chartType = newType;
+  };
+
+  // Função para lidar com fechamento do modal
+  const handleModalClose = (open: boolean) => {
+    if (!open) {
+      modalStateRef.current.isOpen = false;
+    }
+    setIsModalOpen(open);
   };
 
   const getSpreadColor = (spread: number) => {
@@ -154,7 +180,7 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
           onToggle={(enabled) => toggleAlert(symbol, enabled)}
         />
         
-        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <Dialog open={isModalOpen} onOpenChange={handleModalClose}>
           <DialogTrigger asChild>
             <button 
               onClick={handleModalOpen}
@@ -170,13 +196,13 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
                 <div className="flex bg-gray-800 rounded-lg p-1">
                   <button
                     className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'spread' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                    onClick={() => setChartType('spread')}
+                    onClick={() => handleChartTypeChange('spread')}
                   >
                     Spread 24h
                   </button>
                   <button
                     className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'comparison' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                    onClick={() => setChartType('comparison')}
+                    onClick={() => handleChartTypeChange('comparison')}
                   >
                     Spot vs Futures
                   </button>
