@@ -43,7 +43,7 @@ const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
       <div className="p-3 bg-gray-800 border border-gray-700 rounded-md shadow-lg">
         <p className="text-white font-semibold mb-2">{`Data: ${label}`}</p>
         {payload.map((entry, index) => (
-          <p key={index} className={entry.dataKey === 'spot' ? 'text-blue-400' : 'text-orange-400'}>
+          <p key={index} className={entry.dataKey === 'spot' ? 'text-custom-cyan' : 'text-cyan-400'}>
             {`${entry.name}: ${entry.value?.toFixed(6) ?? 'N/D'}`}
           </p>
         ))}
@@ -216,8 +216,8 @@ export default function InstantPriceComparisonChart({ symbol, initialData }: Ins
             type="monotone"
             dataKey="spot"
             name="Spot"
-            stroke="#3B82F6"
-            dot={{ r: 2 }}
+            stroke="#00C49F"
+            dot={{ r: 2, fill: '#00C49F' }}
             strokeWidth={2}
             connectNulls
             isAnimationActive={false}
@@ -226,8 +226,8 @@ export default function InstantPriceComparisonChart({ symbol, initialData }: Ins
             type="monotone"
             dataKey="futures"
             name="Futures"
-            stroke="#F97316"
-            dot={{ r: 2 }}
+            stroke="#06b6d4"
+            dot={{ r: 2, fill: '#06b6d4' }}
             strokeWidth={2}
             connectNulls
             isAnimationActive={false}
