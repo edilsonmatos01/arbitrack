@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { LineChart as ChartIcon } from 'lucide-react';
+import { LineChart as ChartIcon, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -95,10 +95,11 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   const { data, getMaxSpread, isLoading, error } = useInitDataOptimized();
   const maxSpread = getMaxSpread(symbol);
 
-  // Sincronizar estado do modal com ref para evitar fechamento durante re-renderizações
+  // Restaurar estado do modal após re-renderizações
   useEffect(() => {
-    if (modalStateRef.current.isOpen !== isModalOpen) {
-      modalStateRef.current.isOpen = isModalOpen;
+    if (modalStateRef.current.isOpen && !isModalOpen) {
+      // Se o ref indica que o modal deveria estar aberto, mas o estado não está, restaurar
+      setIsModalOpen(true);
     }
   }, [isModalOpen]);
 
@@ -132,9 +133,14 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   // Função para lidar com fechamento do modal
   const handleModalClose = (open: boolean) => {
     if (!open) {
+      // Só fechar se o usuário realmente quiser fechar
       modalStateRef.current.isOpen = false;
+      setIsModalOpen(false);
+    } else {
+      // Se está tentando abrir, permitir
+      modalStateRef.current.isOpen = true;
+      setIsModalOpen(true);
     }
-    setIsModalOpen(open);
   };
 
   const getSpreadColor = (spread: number) => {
@@ -180,7 +186,11 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
           onToggle={(enabled) => toggleAlert(symbol, enabled)}
         />
         
-        <Dialog open={isModalOpen} onOpenChange={handleModalClose}>
+        <Dialog 
+          open={isModalOpen} 
+          onOpenChange={handleModalClose}
+          modal={true}
+        >
           <DialogTrigger asChild>
             <button 
               onClick={handleModalOpen}
@@ -193,18 +203,27 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
             <DialogHeader>
               <div className="flex items-center justify-between">
                 <DialogTitle>Análise de {symbol}</DialogTitle>
-                <div className="flex bg-gray-800 rounded-lg p-1">
+                <div className="flex items-center gap-2">
+                  <div className="flex bg-gray-800 rounded-lg p-1">
+                    <button
+                      className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'spread' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                      onClick={() => handleChartTypeChange('spread')}
+                    >
+                      Spread 24h
+                    </button>
+                    <button
+                      className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'comparison' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                      onClick={() => handleChartTypeChange('comparison')}
+                    >
+                      Spot vs Futures
+                    </button>
+                  </div>
                   <button
-                    className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'spread' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                    onClick={() => handleChartTypeChange('spread')}
+                    onClick={() => handleModalClose(false)}
+                    className="p-2 text-gray-400 hover:text-white transition-colors rounded-md hover:bg-gray-700"
+                    title="Fechar"
                   >
-                    Spread 24h
-                  </button>
-                  <button
-                    className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'comparison' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                    onClick={() => handleChartTypeChange('comparison')}
-                  >
-                    Spot vs Futures
+                    <X className="h-5 w-5" />
                   </button>
                 </div>
               </div>
