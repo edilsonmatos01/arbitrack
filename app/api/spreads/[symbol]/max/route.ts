@@ -48,14 +48,7 @@ export async function GET(
   try {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // Primeiro, vamos verificar se há algum registro na tabela
-    const totalRecords = await prisma.spreadHistory.count();
-
-    if (totalRecords === 0) {
-      const mockData = generateMockData(symbol);
-      return NextResponse.json(mockData);
-    }
-
+    // Buscar registros específicos do símbolo
     const records = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
@@ -68,7 +61,7 @@ export async function GET(
       },
     });
 
-    if (records.length < 2) {
+    if (records.length === 0) {
       const mockData = generateMockData(symbol);
       return NextResponse.json(mockData);
     }

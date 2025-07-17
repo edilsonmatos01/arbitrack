@@ -1,115 +1,60 @@
-// Script para testar a API corrigida
-const { toZonedTime, format } = require('date-fns-tz');
+const fetch = require('node-fetch');
 
-console.log('=== TESTE DA API CORRIGIDA ===');
-
-// Simular dados do banco
-const mockSpreadHistory = [
-  { timestamp: new Date('2025-07-15T14:00:00.000Z'), spread: 2.5 },
-  { timestamp: new Date('2025-07-15T14:30:00.000Z'), spread: 3.1 },
-  { timestamp: new Date('2025-07-15T15:00:00.000Z'), spread: 2.8 },
-  { timestamp: new Date('2025-07-15T15:30:00.000Z'), spread: 3.5 },
-];
-
-function formatDateTimeForSaoPaulo(date) {
-  const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
-  return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
-}
-
-function forceSaoPauloConversion(date) {
+async function testFixedAPI() {
   try {
-    const converted = toZonedTime(date, 'America/Sao_Paulo');
-    
-    const originalHour = date.getUTCHours();
-    const convertedHour = converted.getHours();
-    
-    if (Math.abs(originalHour - convertedHour) === 3) {
-      console.log('[WARNING] Possível problema de timezone detectado, usando fallback');
-      return new Date(date.getTime() - (3 * 60 * 60 * 1000));
-    }
-    
-    return converted;
-  } catch (error) {
-    console.log('[WARNING] Erro na conversão automática, usando fallback manual');
-    return new Date(date.getTime() - (3 * 60 * 60 * 1000));
-  }
-}
+    console.log('🧪 Testando API corrigida...\n');
 
-function roundToNearestInterval(date, intervalMinutes) {
-  const minutes = Math.floor(date.getMinutes() / intervalMinutes) * intervalMinutes;
-  const rounded = new Date(date);
-  rounded.setMinutes(minutes, 0, 0);
-  return rounded;
-}
-
-// Simular a API corrigida
-function simulateFixedAPI() {
-  console.log('\n=== SIMULAÇÃO API CORRIGIDA ===');
-  
-  const now = new Date();
-  const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  
-  console.log('Intervalo de busca:');
-  console.log('- Início (UTC):', start.toISOString());
-  console.log('- Fim (UTC):', now.toISOString());
-  
-  // Filtrar dados
-  const filteredData = mockSpreadHistory.filter(record => 
-    record.timestamp >= start && record.timestamp <= now
-  );
-  
-  console.log(`Dados filtrados: ${filteredData.length} registros`);
-  
-  // Processar como na API corrigida
-  const groupedData = new Map();
-  
-  // CORREÇÃO: Não criar intervalos vazios - apenas processar dados existentes
-  const batchSize = 1000;
-  for (let i = 0; i < filteredData.length; i += batchSize) {
-    const batch = filteredData.slice(i, i + batchSize);
-    
-    for (const record of batch) {
-      // Converter timestamp do banco (UTC) para São Paulo com fallback
-      const recordInSaoPaulo = forceSaoPauloConversion(record.timestamp);
-      const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
-      const timeKey = formatDateTimeForSaoPaulo(roundedTime);
+    // Testar API da tabela (spread máximo)
+    console.log('📊 Testando API da tabela (/api/spreads/LAT_USDT/max):');
+    try {
+      const response = await fetch('http://localhost:3000/api/spreads/LAT_USDT/max');
+      const data = await response.json();
+      console.log(`   Status: ${response.status}`);
+      console.log(`   spMax: ${data.spMax}`);
+      console.log(`   crosses: ${data.crosses}`);
       
-      // Criar intervalo apenas se não existir
-      if (!groupedData.has(timeKey)) {
-        groupedData.set(timeKey, 0);
+      if (data.spMax && data.spMax > 0) {
+        console.log(`   ✅ API retornando dados reais: ${data.spMax.toFixed(4)}%`);
+      } else {
+        console.log(`   ❌ API ainda retornando dados simulados`);
       }
-      
-      const currentMax = groupedData.get(timeKey) || 0;
-      groupedData.set(timeKey, Math.max(currentMax, record.spread));
+    } catch (error) {
+      console.log(`   ❌ Erro: ${error.message}`);
     }
+
+    // Testar API do gráfico
+    console.log('\n📈 Testando API do gráfico (/api/spread-history/24h/LAT_USDT):');
+    try {
+      const response = await fetch('http://localhost:3000/api/spread-history/24h/LAT_USDT');
+      const data = await response.json();
+      console.log(`   Status: ${response.status}`);
+      console.log(`   Registros: ${data.length}`);
+      
+      if (data.length > 0) {
+        const maxSpread = Math.max(...data.map(d => d.spread_percentage));
+        console.log(`   Máximo no gráfico: ${maxSpread.toFixed(4)}%`);
+      }
+    } catch (error) {
+      console.log(`   ❌ Erro: ${error.message}`);
+    }
+
+    // Testar outros símbolos para verificar se a correção é global
+    console.log('\n🌐 Testando outros símbolos:');
+    const testSymbols = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT'];
+    
+    for (const symbol of testSymbols) {
+      try {
+        const response = await fetch(`http://localhost:3000/api/spreads/${symbol}/max`);
+        const data = await response.json();
+        console.log(`   ${symbol}: ${data.spMax?.toFixed(4) || 'N/A'}% (${data.crosses} registros)`);
+      } catch (error) {
+        console.log(`   ${symbol}: ❌ Erro`);
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ Erro geral:', error);
   }
-  
-  console.log('\nResultado da API corrigida:');
-  const result = Array.from(groupedData.entries())
-    .map(([timestamp, spread]) => ({ timestamp, spread_percentage: spread }))
-    .sort((a, b) => {
-      const [dateA, timeA] = a.timestamp.split(' - ');
-      const [dateB, timeB] = b.timestamp.split(' - ');
-      const [dayA, monthA] = dateA.split('/').map(Number);
-      const [dayB, monthB] = dateB.split('/').map(Number);
-      const [hourA, minuteA] = timeA.split(':').map(Number);
-      const [hourB, minuteB] = timeB.split(':').map(Number);
-      if (monthA !== monthB) return monthA - monthB;
-      if (dayA !== dayB) return dayA - dayB;
-      if (hourA !== hourB) return hourA - hourB;
-      return minuteA - minuteB;
-    });
-  
-  result.forEach(item => {
-    console.log(`- ${item.timestamp}: ${item.spread_percentage}%`);
-  });
-  
-  console.log(`\nTotal de intervalos criados: ${result.length}`);
-  
-  return result;
 }
 
-// Executar teste
-const result = simulateFixedAPI();
-
-console.log('\n=== FIM DO TESTE ==='); 
+testFixedAPI(); 
