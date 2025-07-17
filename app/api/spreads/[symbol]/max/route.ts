@@ -1,13 +1,5 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-let prisma: PrismaClient | null = null;
-
-try {
-  prisma = new PrismaClient();
-} catch (error) {
-  console.warn('Aviso: Não foi possível conectar ao banco de dados');
-}
+import { robustPrisma } from '@/lib/prisma-robust';
 
 // Configuração para tornar a rota dinâmica
 export const dynamic = 'force-dynamic';
@@ -39,17 +31,11 @@ export async function GET(
     return NextResponse.json({ error: 'O símbolo é obrigatório' }, { status: 400 });
   }
 
-  // Se não houver conexão com o banco, retorna dados simulados para desenvolvimento
-  if (!prisma) {
-    const mockData = generateMockData(symbol);
-    return NextResponse.json(mockData);
-  }
-
   try {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // Buscar registros específicos do símbolo
-    const records = await prisma.spreadHistory.findMany({
+    // Buscar registros específicos do símbolo usando Prisma robusto
+    const records = await robustPrisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
         timestamp: {
@@ -66,7 +52,7 @@ export async function GET(
       return NextResponse.json(mockData);
     }
 
-    const spreads = records.map(r => r.spread);
+    const spreads = records.map((r: any) => r.spread);
     const maxSpread = Math.max(...spreads);
 
     return NextResponse.json({
