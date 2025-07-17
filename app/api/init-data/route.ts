@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 // Cache em memória para melhorar performance
 const initDataCache = new Map();
-const CACHE_DURATION = 30 * 1000; // 30 segundos
+const CACHE_DURATION = 60 * 1000; // 1 minuto (aumentar cache)
 
 export async function GET(req: NextRequest) {
   console.log('[API] GET /api/init-data - Iniciando...');
@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     const cacheKey = `init-data_${userId}`;
 
     console.log('[API] Parâmetros:', { userId });
+    console.log('[API] Prisma disponível:', !!prisma);
 
     // Verificar cache primeiro
     const cached = initDataCache.get(cacheKey);
@@ -24,77 +25,24 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(cached.data);
     }
 
-    // Se não há prisma, retornar dados mockados
+        // Forçar uso do banco real
+    console.log('[API] Tentando conectar com o banco de dados...');
+
     if (!prisma) {
-      console.warn('[API] Banco de dados não disponível, retornando dados mockados');
-      const mockData = {
-        positions: {
-          open: [],
-          closed: [
-            {
-              _id: 'pos_mock_1',
-              userId: userId,
-              asset: 'BTC_USDT',
-              market: 'spot',
-              side: 'buy',
-              exchange: 'gateio',
-              amount: 0.1,
-              entryPrice: 45000,
-              entryAt: '2025-01-15T10:00:00.000Z',
-              exitPrice: 45100,
-              exitAt: '2025-01-15T11:00:00.000Z',
-              status: 'closed',
-              pnl: 10.0,
-              linkedTo: null,
-              group: '2025T3',
-              notes: 'Simulada',
-              finalizedTogether: true
-            }
-          ]
-        },
-        spreads: {
-          data: {
-            'BTC_USDT': {
-              spMax: 2.5,
-              spMin: -0.8,
-              crosses: 15,
-              exchanges: ['gateio_mexc', 'bitget_mexc']
-            },
-            'ETH_USDT': {
-              spMax: 1.8,
-              spMin: -1.2,
-              crosses: 12,
-              exchanges: ['gateio_mexc']
-            },
-            'SOL_USDT': {
-              spMax: 3.2,
-              spMin: -0.5,
-              crosses: 8,
-              exchanges: ['bitget_mexc']
-            }
-          }
-        },
-        pairs: {
-          gateio: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'],
-          mexc: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'],
-          bitget: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT']
-        }
-      };
-      initDataCache.set(cacheKey, { data: mockData, timestamp: Date.now() });
-      return NextResponse.json(mockData);
+      throw new Error('Prisma client não disponível');
     }
 
-    // Timeout para evitar travamentos
+    // Timeout mais agressivo para performance
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Timeout')), 5000);
+      setTimeout(() => reject(new Error('Timeout')), 2000);
     });
 
     // Buscar dados em paralelo
     const dataPromise = Promise.all([
-      // Buscar posições
+      // Buscar posições (pode estar vazio)
       prisma.position.findMany({
         orderBy: { createdAt: 'desc' },
-        take: 50, // Limitar para performance
+        take: 10,
         select: {
           id: true,
           symbol: true,
@@ -108,20 +56,21 @@ export async function GET(req: NextRequest) {
           updatedAt: true
         }
       }),
-      // Buscar spreads máximos das últimas 24h
-      prisma.$queryRaw`
-        SELECT 
-          symbol,
-          MAX(spread) as spMax,
-          MIN(spread) as spMin,
-          COUNT(*) as crosses,
-          ARRAY_AGG(DISTINCT exchangeBuy || '_' || exchangeSell) as exchanges
-        FROM "SpreadHistory" 
-        WHERE timestamp >= NOW() - INTERVAL '24 hours'
-        GROUP BY symbol
-        ORDER BY spMax DESC
-        LIMIT 100
-      `
+      // Buscar spreads das últimas 24h
+      prisma.spreadHistory.findMany({
+        where: {
+          timestamp: {
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
+          }
+        },
+        select: {
+          symbol: true,
+          spread: true,
+          exchangeBuy: true,
+          exchangeSell: true
+        },
+        take: 500 // Reduzir ainda mais para performance
+      })
     ]);
 
     const [positions, spreadsRaw] = await Promise.race([dataPromise, timeoutPromise]) as [any[], any[]];
@@ -156,13 +105,27 @@ export async function GET(req: NextRequest) {
 
     // Processar spreads
     const spreadsData: any = {};
+    const spreadsBySymbol: any = {};
+    
+    // Agrupar spreads por símbolo
     spreadsRaw.forEach((spread: any) => {
       const symbol = spread.symbol.replace('/', '_');
+      if (!spreadsBySymbol[symbol]) {
+        spreadsBySymbol[symbol] = [];
+      }
+      spreadsBySymbol[symbol].push(spread);
+    });
+    
+    // Calcular máximos e mínimos por símbolo
+    Object.entries(spreadsBySymbol).forEach(([symbol, spreads]: [string, any]) => {
+      const spreadsList = spreads.map((s: any) => s.spread);
+      const exchanges = [...new Set(spreads.map((s: any) => `${s.exchangeBuy}_${s.exchangeSell}`))];
+      
       spreadsData[symbol] = {
-        spMax: parseFloat(spread.spmax) || 0,
-        spMin: parseFloat(spread.spmin) || 0,
-        crosses: parseInt(spread.crosses) || 0,
-        exchanges: spread.exchanges || []
+        spMax: Math.max(...spreadsList),
+        spMin: Math.min(...spreadsList),
+        crosses: spreads.length,
+        exchanges
       };
     });
 
