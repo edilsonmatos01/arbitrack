@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
           updatedAt: true
         }
       }),
-      // Buscar spreads das últimas 24h
+      // Buscar spreads das últimas 24h - SEM LIMITE para garantir dados completos
       prisma.spreadHistory.findMany({
         where: {
           timestamp: {
@@ -68,8 +68,8 @@ export async function GET(req: NextRequest) {
           spread: true,
           exchangeBuy: true,
           exchangeSell: true
-        },
-        take: 500 // Reduzir ainda mais para performance
+        }
+        // Removido take: 500 para garantir dados completos
       })
     ]);
 
