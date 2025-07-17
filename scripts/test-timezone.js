@@ -7,7 +7,6 @@ console.log('TZ Environment Variable:', process.env.TZ || 'Não definida');
 // Testar formatação de data
 function formatDateTime(date) {
   return date.toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',

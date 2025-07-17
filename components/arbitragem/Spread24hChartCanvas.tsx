@@ -189,7 +189,7 @@ export default function Spread24hChartCanvas({ symbol }: Spread24hChartCanvasPro
       </div>
       {lastUpdate && (
         <div className="text-right text-xs text-gray-400 mt-2 flex-shrink-0">
-          Atualizado: {lastUpdate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} | {safeArray(data).length} pontos coletados
+          Atualizado: {lastUpdate.toLocaleString('pt-BR')} | {safeArray(data).length} pontos coletados
         </div>
       )}
     </div>

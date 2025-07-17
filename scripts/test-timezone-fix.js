@@ -1,15 +1,17 @@
 // Script para testar as correções de timezone
-const { toZonedTime, format } = require('date-fns-tz');
-
 console.log('=== TESTE DAS CORREÇÕES DE TIMEZONE ===');
 
-// Função corrigida (igual ao Spot vs Futures)
-function formatDateTimeCorrect(date) {
-  const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
-  return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
+// Função que simula a nova formatação de data (sem conversão de timezone)
+function formatDateTime(date) {
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  
+  return `${day}/${month} - ${hours}:${minutes}`;
 }
 
-// Função antiga (problemática)
+// Função antiga (com conversão para São Paulo)
 function formatDateTimeOld(date) {
   return date.toLocaleString('pt-BR', {
     timeZone: 'America/Sao_Paulo',
@@ -21,62 +23,99 @@ function formatDateTimeOld(date) {
   }).replace(', ', ' - ');
 }
 
-// Função para arredondar intervalos
-function roundToNearestInterval(date, intervalMinutes) {
-  const minutes = Math.floor(date.getMinutes() / intervalMinutes) * intervalMinutes;
-  const rounded = new Date(date);
-  rounded.setMinutes(minutes, 0, 0);
-  return rounded;
+// Testar com diferentes horários
+function testTimeFormats() {
+  console.log('\n1️⃣ TESTANDO FORMATOS DE HORA');
+  
+  const now = new Date();
+  console.log('Data atual:', now.toISOString());
+  console.log('Data atual (local):', now.toString());
+  
+  console.log('\nComparação de formatos:');
+  console.log('Antigo (com conversão SP):', formatDateTimeOld(now));
+  console.log('Novo (sem conversão):', formatDateTime(now));
+  
+  // Testar com horários específicos
+  const testTimes = [
+    new Date('2025-07-17T10:00:00.000Z'), // 10:00 UTC
+    new Date('2025-07-17T13:00:00.000Z'), // 13:00 UTC
+    new Date('2025-07-17T18:00:00.000Z'), // 18:00 UTC
+    new Date('2025-07-17T22:00:00.000Z'), // 22:00 UTC
+  ];
+  
+  console.log('\nTeste com horários específicos:');
+  testTimes.forEach((time, index) => {
+    console.log(`\nHorário ${index + 1}:`);
+    console.log(`  UTC: ${time.toISOString()}`);
+    console.log(`  Local: ${time.toString()}`);
+    console.log(`  Antigo: ${formatDateTimeOld(time)}`);
+    console.log(`  Novo: ${formatDateTime(time)}`);
+  });
 }
 
-// Teste com data atual
-const now = new Date();
-console.log('\n=== TESTE COM DATA ATUAL ===');
-console.log('Data atual (UTC):', now.toISOString());
-console.log('Data atual (local):', now.toString());
-
-// Teste com intervalos de 30 minutos
-console.log('\n=== TESTE COM INTERVALOS DE 30 MINUTOS ===');
-
-// Método antigo (problemático)
-console.log('MÉTODO ANTIGO (problemático):');
-let currentTimeOld = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-currentTimeOld.setMinutes(Math.floor(currentTimeOld.getMinutes() / 30) * 30, 0, 0);
-
-for (let i = 0; i < 5; i++) {
-  const timeKeyOld = formatDateTimeOld(currentTimeOld);
-  console.log(`  ${currentTimeOld.toISOString()} -> ${timeKeyOld}`);
-  currentTimeOld = new Date(currentTimeOld.getTime() + 30 * 60 * 1000);
+// Testar intervalos de 30 minutos
+function testIntervals() {
+  console.log('\n2️⃣ TESTANDO INTERVALOS DE 30 MINUTOS');
+  
+  const now = new Date();
+  const start = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24h atrás
+  
+  console.log('Intervalo de 24h:');
+  console.log('Início:', start.toISOString());
+  console.log('Fim:', now.toISOString());
+  
+  console.log('\nPrimeiros 5 intervalos (30 min cada):');
+  let currentTime = new Date(start);
+  for (let i = 0; i < 5; i++) {
+    console.log(`  ${i + 1}. ${formatDateTime(currentTime)}`);
+    currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
+  }
+  
+  console.log('\nÚltimos 5 intervalos:');
+  currentTime = new Date(now.getTime() - 4 * 30 * 60 * 1000); // 2h atrás
+  for (let i = 0; i < 5; i++) {
+    console.log(`  ${i + 1}. ${formatDateTime(currentTime)}`);
+    currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
+  }
 }
 
-// Método novo (corrigido)
-console.log('\nMÉTODO NOVO (corrigido):');
-const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
-const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
-
-let currentTimeNew = roundToNearestInterval(startInSaoPaulo, 30);
-
-for (let i = 0; i < 5; i++) {
-  const timeKeyNew = formatDateTimeCorrect(currentTimeNew);
-  console.log(`  ${currentTimeNew.toISOString()} -> ${timeKeyNew}`);
-  currentTimeNew = new Date(currentTimeNew.getTime() + 30 * 60 * 1000);
+// Testar formatação de timestamp para exibição
+function testTimestampFormatting() {
+  console.log('\n3️⃣ TESTANDO FORMATAÇÃO DE TIMESTAMP');
+  
+  const now = new Date();
+  
+  // Simular formatação como nos componentes
+  const formatTimestamp = (date) => {
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).replace(', ', ' - ');
+  };
+  
+  console.log('Timestamp formatado:', formatTimestamp(now));
+  console.log('Comparação:');
+  console.log('  Antigo (com timezone):', now.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
+  console.log('  Novo (sem timezone):', now.toLocaleString('pt-BR'));
 }
 
-// Teste com horário específico (09:30)
-console.log('\n=== TESTE COM HORÁRIO ESPECÍFICO (09:30) ===');
-const testDate = new Date();
-testDate.setHours(9, 30, 0, 0);
+// Executar todos os testes
+console.log('🔧 CORREÇÕES APLICADAS:');
+console.log('✅ Removida conversão de timezone nas APIs');
+console.log('✅ Removida conversão de timezone nos componentes');
+console.log('✅ Usando horário local em todos os gráficos');
+console.log('✅ Formatos de data consistentes');
 
-console.log('Data de teste (UTC):', testDate.toISOString());
-console.log('Método antigo:', formatDateTimeOld(testDate));
-console.log('Método novo:', formatDateTimeCorrect(testDate));
+testTimeFormats();
+testIntervals();
+testTimestampFormatting();
 
-// Verificar se o horário está correto (deve ser 09:30 em São Paulo)
-const testDateInSaoPaulo = toZonedTime(testDate, 'America/Sao_Paulo');
-console.log('Data em São Paulo:', testDateInSaoPaulo.toString());
-console.log('Horário em São Paulo:', format(testDateInSaoPaulo, 'HH:mm', { timeZone: 'America/Sao_Paulo' }));
-
-console.log('\n=== CONCLUSÃO ===');
-console.log('✅ O método novo deve mostrar horários corretos de São Paulo');
-console.log('❌ O método antigo mostrava horários com 3 horas de diferença');
-console.log('🔧 Correções aplicadas em todos os arquivos de spread history'); 
+console.log('\n=== FIM DO TESTE ===');
+console.log('\n📋 RESUMO:');
+console.log('• Os gráficos agora exibem o horário atual (sem -3 horas)');
+console.log('• As APIs retornam dados no horário local');
+console.log('• Todos os componentes usam formatação consistente');
+console.log('• O timezone do servidor (TZ=America/Sao_Paulo) continua configurado'); 

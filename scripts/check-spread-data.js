@@ -26,7 +26,7 @@ function checkSpreadData() {
                 console.log({
                     symbol: record.symbol,
                     spread: record.spread,
-                    timestamp: record.timestamp.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+                    timestamp: record.timestamp.toLocaleString('pt-BR'),
                     direction: record.direction
                 });
             });

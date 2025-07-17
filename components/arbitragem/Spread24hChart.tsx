@@ -34,10 +34,9 @@ const localCache = new Map<string, { data: SpreadData[]; timestamp: number }>();
 if (typeof window !== 'undefined') window.Spread24hChart_localCache = localCache;
 const CACHE_DURATION = 5 * 60 * 1000;
 
-function formatTimestampToSaoPaulo(iso: string) {
+function formatTimestampToLocal(iso: string) {
   const date = new Date(iso);
   return date.toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -147,7 +146,7 @@ export default function Spread24hChart({ symbol }: Spread24hChartProps) {
         {lastUpdate && (
           <div className="text-right">
             <div className="text-sm text-gray-400">
-              Atualizado: {lastUpdate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+              Atualizado: {lastUpdate.toLocaleString('pt-BR')}
             </div>
             <div className="text-xs text-gray-500">
               {data.length} pontos coletados
@@ -179,7 +178,7 @@ export default function Spread24hChart({ symbol }: Spread24hChartProps) {
             tickFormatter={(value) => `${value.toFixed(2)}%`}
             domain={[minSpread - padding, maxSpread + padding]}
           />
-          <Tooltip content={<CustomTooltip />} labelFormatter={formatTimestampToSaoPaulo} />
+          <Tooltip content={<CustomTooltip />} labelFormatter={formatTimestampToLocal} />
           <Line
             type="monotone"
             dataKey="spread_percentage"

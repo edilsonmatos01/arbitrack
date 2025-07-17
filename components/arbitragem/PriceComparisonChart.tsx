@@ -90,7 +90,6 @@ export default function PriceComparisonChart({ symbol }: PriceComparisonChartPro
   // Função para formatar timestamp para exibição
   const formatTimestamp = (date: Date): string => {
     return date.toLocaleString('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',

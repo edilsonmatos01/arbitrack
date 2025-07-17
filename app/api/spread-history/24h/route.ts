@@ -14,9 +14,13 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 function formatDateTime(date: Date): string {
-  // Converter para fuso horário de São Paulo usando date-fns-tz
-  const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
-  return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
+  // Usar horário local sem conversão
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  
+  return `${day}/${month} - ${hours}:${minutes}`;
 }
 
 function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
@@ -62,15 +66,12 @@ export async function GET(request: Request) {
       }
     });
 
-    // Agrupa os dados em intervalos de 30 minutos usando fuso horário de São Paulo
+    // Agrupa os dados em intervalos de 30 minutos usando horário local
     const groupedData = new Map<string, number>();
     
-    // Criar datas no fuso horário de São Paulo corretamente
-    const nowInSaoPaulo = toZonedTime(now, 'America/Sao_Paulo');
-    const startInSaoPaulo = toZonedTime(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'America/Sao_Paulo');
-    
-    let currentTime = roundToNearestInterval(startInSaoPaulo, 30);
-    const endTime = roundToNearestInterval(nowInSaoPaulo, 30);
+    // Usar horário local sem conversão
+    let currentTime = roundToNearestInterval(start, 30);
+    const endTime = roundToNearestInterval(now, 30);
 
     while (currentTime <= endTime) {
       const timeKey = formatDateTime(currentTime);
@@ -82,9 +83,8 @@ export async function GET(request: Request) {
 
     // Preenche com os dados reais
     for (const record of spreadHistory) {
-      // Converter timestamp do banco para fuso de São Paulo usando date-fns-tz
-      const recordInSaoPaulo = toZonedTime(record.timestamp, 'America/Sao_Paulo');
-      const roundedTime = roundToNearestInterval(recordInSaoPaulo, 30);
+      // Usar timestamp do banco diretamente sem conversão
+      const roundedTime = roundToNearestInterval(record.timestamp, 30);
       const timeKey = formatDateTime(roundedTime);
       const currentMax = groupedData.get(timeKey) || 0;
       groupedData.set(timeKey, Math.max(currentMax, record.spread));

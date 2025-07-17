@@ -10,9 +10,13 @@ const cache = new Map();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutos
 
 function formatDateTime(date: Date): string {
-  // Converter para fuso horário de São Paulo usando date-fns-tz
-  const saoPauloTime = toZonedTime(date, 'America/Sao_Paulo');
-  return format(saoPauloTime, 'dd/MM - HH:mm', { timeZone: 'America/Sao_Paulo' });
+  // Usar horário local sem conversão
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  
+  return `${day}/${month} - ${hours}:${minutes}`;
 }
 
 export async function GET(req: NextRequest) {
