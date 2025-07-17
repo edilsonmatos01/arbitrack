@@ -28,25 +28,52 @@ export async function GET(request: Request) {
 
   try {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    
+    console.log(`[API] Buscando spread máximo para ${symbol} desde ${twentyFourHoursAgo.toISOString()}`);
 
+    // Buscar TODOS os registros das últimas 24h sem filtros adicionais
     const records = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
         timestamp: {
           gte: twentyFourHoursAgo,
         },
+        // Remover filtros que possam estar causando problemas
+        // spread: { gt: 0 } // Removido para debug
       },
       select: {
         spread: true,
+        timestamp: true,
       },
+      orderBy: {
+        timestamp: 'desc'
+      }
     });
 
-    if (records.length < 2) {
+    console.log(`[API] Encontrados ${records.length} registros para ${symbol}`);
+
+    if (records.length === 0) {
+      console.log(`[API] Nenhum registro encontrado para ${symbol}`);
       return NextResponse.json({ spMax: null, crosses: 0 });
     }
 
+    // Calcular estatísticas
     const spreads = records.map(r => r.spread);
     const maxSpread = Math.max(...spreads);
+    const minSpread = Math.min(...spreads);
+    const avgSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+
+    console.log(`[API] Estatísticas para ${symbol}:`);
+    console.log(`   Máximo: ${maxSpread.toFixed(2)}%`);
+    console.log(`   Mínimo: ${minSpread.toFixed(2)}%`);
+    console.log(`   Média: ${avgSpread.toFixed(2)}%`);
+    console.log(`   Total: ${spreads.length} registros`);
+
+    // Verificar se há spreads muito diferentes
+    const uniqueSpreads = [...new Set(spreads)];
+    if (uniqueSpreads.length < 10) {
+      console.log(`[API] Spreads únicos: ${uniqueSpreads.map(s => s.toFixed(2)).join(', ')}`);
+    }
 
     return NextResponse.json({
       spMax: maxSpread,
