@@ -125,9 +125,17 @@ class ChartCache {
       const response = await fetch(`/api/price-comparison/${encodeURIComponent(symbol)}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       
-      const data = await response.json();
-      this.setPriceComparisonData(symbol, data);
-      return data;
+      const rawData = await response.json();
+      
+      // Transformar dados da API para o formato esperado pelo componente
+      const transformedData: PriceComparisonData[] = rawData.map((item: any) => ({
+        timestamp: item.timestamp,
+        spot: item.gateio_price || null,
+        futures: item.mexc_price || null
+      }));
+      
+      this.setPriceComparisonData(symbol, transformedData);
+      return transformedData;
     } catch (error) {
       console.error(`[ChartCache] Erro ao buscar dados de price comparison para ${symbol}:`, error);
       return [];
