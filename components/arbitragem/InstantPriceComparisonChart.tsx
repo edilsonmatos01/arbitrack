@@ -106,26 +106,32 @@ export default function InstantPriceComparisonChart({ symbol, initialData }: Ins
     }
   }, [symbol, initialData, fetchPriceComparisonData]);
 
-  // Pré-carregar dados quando o componente montar
+  // Carregar dados iniciais
   useEffect(() => {
     if (!initialData || initialData.length === 0) {
       loadData();
+    } else {
+      setData(initialData);
+      setLastUpdate(new Date());
+      setLoading(false);
     }
-    
-    // Pré-carregar dados para atualizações futuras
+  }, [symbol, initialData]); // Removido loadData e prefetchData das dependências
+
+  // Pré-carregar dados para atualizações futuras (apenas uma vez)
+  useEffect(() => {
     prefetchData(symbol);
-  }, [symbol, initialData, loadData, prefetchData]);
+  }, [symbol]); // Apenas symbol como dependência
 
   // Atualizar dados a cada 2 minutos
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!loading) {
+      if (!loading && (!initialData || initialData.length === 0)) {
         loadData();
       }
     }, 2 * 60 * 1000);
     
     return () => clearInterval(interval);
-  }, [loadData, loading]);
+  }, [symbol, loading, initialData]); // Removido loadData das dependências
 
   // Renderizar skeleton apenas se não houver dados iniciais
   if (loading && (!initialData || initialData.length === 0)) {
