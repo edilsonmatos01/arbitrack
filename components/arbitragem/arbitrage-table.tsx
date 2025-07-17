@@ -382,10 +382,11 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
     return Array.isArray(data) ? data : [];
   }
 
+  // Hook para pré-carregar dados dos gráficos
+  const { preloadSymbols } = usePreloadCharts();
+  
   // Pré-carregar dados dos gráficos para símbolos visíveis usando o novo sistema de cache
   useEffect(() => {
-    const { preloadSymbols } = usePreloadCharts();
-    
     // Determina os símbolos visíveis na tabela
     const symbols = opportunities
       .filter(opp => {
@@ -403,7 +404,7 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
       console.log(`[ArbitrageTable] Pré-carregando dados para ${symbols.length} símbolos visíveis...`);
       preloadSymbols(symbols);
     }
-  }, [opportunities, isBigArb, minSpread, maxOpportunities]);
+  }, [opportunities, isBigArb, minSpread, maxOpportunities, preloadSymbols]);
 
 
   function calcularLucro(spreadValue: number) { 
