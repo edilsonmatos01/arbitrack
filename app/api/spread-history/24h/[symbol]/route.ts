@@ -55,16 +55,15 @@ export async function GET(
       return NextResponse.json([]);
     }
 
-    // Verificar cache primeiro (desabilitado temporariamente para debug)
+    // Verificar cache primeiro
     const cacheKey = `spread-history-24h-${symbol}`;
     const cachedData = cache.get(cacheKey);
     if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (24h)`);
-      // return NextResponse.json(cachedData.data); // Desabilitado para debug
+      return NextResponse.json(cachedData.data);
     }
     
-    // Forçar nova busca para debug
-    console.log(`[API] Forçando nova busca para ${symbol} (cache desabilitado)`);
+    console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
 
     console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
     const startTime = Date.now();

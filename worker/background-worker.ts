@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import WebSocket from 'ws';
 import * as https from 'https';
+import { MONITORED_PAIRS } from '../lib/predefined-pairs';
 
 // Interfaces
 interface MarketPrice {
@@ -308,20 +309,14 @@ async function initializePrisma(): Promise<void> {
 
 // Função para obter pares negociáveis
 async function getTradablePairs(): Promise<TradableSymbol[]> {
-  try {
-    if (!prisma) {
-      await initializePrisma();
-      if (!prisma) return []; // Se ainda não conseguiu conectar, retorna array vazio
-    }
-    return await prisma.$queryRaw<TradableSymbol[]>`
-      SELECT "baseSymbol", "gateioSymbol", "mexcSymbol", "gateioFuturesSymbol", "mexcFuturesSymbol"
-      FROM "TradableSymbol"
-      WHERE "isActive" = true
-    `;
-  } catch (error) {
-    console.error('[Worker] Erro ao obter pares negociáveis:', error);
-    return [];
-  }
+  // Retorna a lista estática de pares monitorados, convertendo para o formato TradableSymbol
+  return MONITORED_PAIRS.map((pair) => ({
+    baseSymbol: pair.replace('_USDT', ''),
+    gateioSymbol: pair,
+    mexcSymbol: pair,
+    gateioFuturesSymbol: pair,
+    mexcFuturesSymbol: pair
+  }));
 }
 
 // Função para processar mensagens WebSocket

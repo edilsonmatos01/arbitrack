@@ -70,12 +70,24 @@ class ChartCache {
     }
   }
 
-  // Pré-carregar dados para múltiplos símbolos
+  // Pré-carregar dados para múltiplos símbolos com limite de concorrência
   async prefetchMultipleSymbols(symbols: string[]): Promise<void> {
     console.log(`[ChartCache] Pré-carregando dados para ${symbols.length} símbolos...`);
     
-    const promises = symbols.map(symbol => this.prefetchData(symbol));
-    await Promise.allSettled(promises);
+    // Limitar a 3 requisições simultâneas para evitar sobrecarga
+    const CONCURRENCY_LIMIT = 3;
+    const chunks = [];
+    
+    for (let i = 0; i < symbols.length; i += CONCURRENCY_LIMIT) {
+      chunks.push(symbols.slice(i, i + CONCURRENCY_LIMIT));
+    }
+    
+    for (const chunk of chunks) {
+      const promises = chunk.map((symbol: string) => this.prefetchData(symbol));
+      await Promise.allSettled(promises);
+      // Pequena pausa entre chunks para evitar sobrecarga
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     
     console.log(`[ChartCache] Pré-carregamento concluído`);
   }
@@ -150,7 +162,9 @@ class ChartCache {
     // Limitar tamanho do cache
     if (cache.size > this.MAX_CACHE_SIZE) {
       const firstKey = cache.keys().next().value;
-      cache.delete(firstKey);
+      if (firstKey) {
+        cache.delete(firstKey);
+      }
     }
   }
 

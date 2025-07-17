@@ -82,18 +82,16 @@ export default function InstantSpread24hChart({ symbol, initialData }: InstantSp
     setError(null);
     
     try {
-      console.log(`[InstantSpread24hChart] Carregando dados para ${symbol}...`);
       const result = await fetchSpreadData(symbol);
       
       if (result.length > 0) {
         setData(result);
         setLastUpdate(new Date());
-        console.log(`[InstantSpread24hChart] Dados carregados: ${result.length} pontos`);
       } else {
         setError('Nenhum dado disponível');
       }
     } catch (err: any) {
-      console.error(`[InstantSpread24hChart] Erro para ${symbol}:`, err);
+      // Log reduzido para melhor performance
       setError(err.message || 'Erro ao carregar dados');
       setData([]);
     } finally {
@@ -110,23 +108,23 @@ export default function InstantSpread24hChart({ symbol, initialData }: InstantSp
       setLastUpdate(new Date());
       setLoading(false);
     }
-  }, [symbol, initialData]); // Removido loadData e prefetchData das dependências
+  }, [symbol, initialData]);
 
   // Pré-carregar dados para atualizações futuras (apenas uma vez)
   useEffect(() => {
     prefetchData(symbol);
-  }, [symbol]); // Apenas symbol como dependência
+  }, [symbol]);
 
-  // Atualizar dados a cada 2 minutos (mais frequente para dados mais frescos)
+  // Atualizar dados a cada 10 minutos (reduzido para melhor performance)
   useEffect(() => {
     const interval = setInterval(() => {
       if (!loading && (!initialData || initialData.length === 0)) {
         loadData();
       }
-    }, 2 * 60 * 1000);
+    }, 10 * 60 * 1000); // Aumentado de 5 para 10 minutos
     
     return () => clearInterval(interval);
-  }, [symbol, loading, initialData]); // Removido loadData das dependências
+  }, [symbol, loading, initialData]);
 
   // Renderizar skeleton apenas se não houver dados iniciais
   if (loading && (!initialData || initialData.length === 0)) {
@@ -200,19 +198,18 @@ export default function InstantSpread24hChart({ symbol, initialData }: InstantSp
           <YAxis
             stroke="#9CA3AF"
             tick={{ fill: '#9CA3AF', fontSize: 11 }}
+            domain={[Math.max(0, minSpread - padding), maxSpread + padding]}
             tickFormatter={(value) => `${value.toFixed(2)}%`}
-            domain={[minSpread - padding, maxSpread + padding]}
           />
-          <Tooltip content={<CustomTooltip />} labelFormatter={formatTimestampToLocal} />
+          <Tooltip content={<CustomTooltip />} />
           <Line
             type="monotone"
             dataKey="spread_percentage"
-            name="Spread (%)"
-            stroke="#34D399"
-            dot={{ r: 2 }}
+            stroke="#10B981"
             strokeWidth={2}
-            connectNulls
-            isAnimationActive={false}
+            dot={{ fill: '#10B981', strokeWidth: 2, r: 3 }}
+            activeDot={{ r: 5, stroke: '#10B981', strokeWidth: 2, fill: '#10B981' }}
+            connectNulls={true}
           />
         </LineChart>
       </ResponsiveContainer>

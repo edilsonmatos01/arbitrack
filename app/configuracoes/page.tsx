@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Eye, EyeOff, Key, Shield, AlertTriangle, CheckCircle, ArrowLeft, Plus, Trash2, Edit } from 'lucide-react';
 import Link from 'next/link';
+import ManualBalanceManager from '@/components/configuracoes/manual-balance-manager';
 
 interface ApiConfig {
   id: string;
@@ -433,6 +434,11 @@ export default function ConfiguracoesPage() {
             Suas chaves de API são criptografadas antes de serem armazenadas no banco de dados. 
             Nunca compartilhe suas chaves de API com terceiros.
           </p>
+        </div>
+
+        {/* Seção de Saldos Manuais */}
+        <div className="mt-8">
+          <ManualBalanceManager />
         </div>
       </div>
     </div>

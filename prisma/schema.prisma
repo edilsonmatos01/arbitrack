@@ -101,3 +101,15 @@ model ApiConfiguration {
 
   @@index([exchange])
 }
+
+model ManualBalance {
+  id          String   @id @default(cuid())
+  name        String
+  amount      Float
+  currency    String   @default("USDT")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}

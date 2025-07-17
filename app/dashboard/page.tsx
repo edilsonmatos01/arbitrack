@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Sidebar from '@/components/dashboard/sidebar';
 import ArbitrageHistoryChart from '@/components/dashboard/arbitrage-history-chart';
-import TotalBalanceCard from '@/components/dashboard/total-balance-card';
+import ManualTotalBalanceCard from '@/components/dashboard/manual-total-balance-card';
 import StaticMetrics from '@/components/dashboard/static-metrics';
 import EnhancedPercentageGauge from '@/components/dashboard/enhanced-percentage-gauge';
 import SoundAlertControls from '@/components/arbitragem/SoundAlertControls';
@@ -60,7 +60,7 @@ export default function DashboardPage() {
         {/* Seção de Saldo Total */}
         <section className="mb-8">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <TotalBalanceCard />
+            <ManualTotalBalanceCard />
             <div className="lg:col-span-3">
               <div className="bg-dark-card p-6 rounded-lg shadow h-full flex flex-col justify-center">
                 <h2 className="text-xl font-semibold text-white mb-2">Sistema de Arbitragem</h2>

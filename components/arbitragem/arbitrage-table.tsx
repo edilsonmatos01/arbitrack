@@ -10,22 +10,16 @@ import FinalizePositionModal from './FinalizePositionModal';
 import { OperationHistoryStorage } from '@/lib/operation-history-storage';
 import ExchangeBalances from './ExchangeBalances';
 import ConfirmOrderModal from './ConfirmOrderModal';
-import { usePreloadCharts, useHoverPreload } from './usePreloadCharts';
+import { useInitDataOptimized } from './useInitDataOptimized';
+import { MONITORED_PAIRS, getFormattedPairs } from '@/lib/predefined-pairs';
 
 const EXCHANGES = [
   { value: "gateio", label: "Gate.io" },
   { value: "mexc", label: "MEXC" },
 ];
 
-// Lista de pares será carregada dinamicamente
-const DEFAULT_PAIRS = [
-  "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "AVAX/USDT", "DOT/USDT", "TRX/USDT", "LTC/USDT",
-  "MATIC/USDT", "LINK/USDT", "ATOM/USDT", "NEAR/USDT", "FIL/USDT", "AAVE/USDT", "UNI/USDT", "FTM/USDT", "INJ/USDT", "RNDR/USDT",
-  "ARB/USDT", "OP/USDT", "SUI/USDT", "LDO/USDT", "DYDX/USDT", "GRT/USDT", "1INCH/USDT",
-  "APE/USDT", "GMT/USDT", "FLOW/USDT", "PEPE/USDT", "FLOKI/USDT", "BONK/USDT",
-  "DOGE/USDT", "SHIB/USDT", "WIF/USDT", "TURBO/USDT", "1000SATS/USDT",
-  "TON/USDT", "APT/USDT", "SEI/USDT"
-];
+// Lista pré-definida de pares (substitui carregamento dinâmico)
+const DEFAULT_PAIRS = getFormattedPairs('slash');
 
 // Lista fixa para Big Arb com os pares especificados
 const BIG_ARB_PAIRS = [
@@ -266,6 +260,7 @@ declare global {
 }
 
 export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps) {
+  console.log('[ArbitrageTable] Componente sendo renderizado');
   const [arbitrageType, setArbitrageType] = useState<'intra'|'inter'>('inter');
   const [direction, setDirection] = useState<'SPOT_TO_FUTURES' | 'FUTURES_TO_SPOT' | 'ALL'>('ALL');
   const [minSpread, setMinSpread] = useState(0.1);
@@ -274,8 +269,8 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   const [futuresExchange, setFuturesExchange] = useState('mexc');
   const [isPaused, setIsPaused] = useState(true); // Agora inicia pausado
   
-  // Pré-carregar dados dos gráficos
-  usePreloadCharts();
+  // DESABILITADO: Pré-carregar dados dos gráficos
+  // usePreloadCharts();
 
   // Estados para posições com persistência no banco de dados
   const [positions, setPositions] = useState<Position[]>([]);
@@ -335,7 +330,8 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
       
       try {
         console.log('[ArbitrageTable] Carregando posições...');
-        const response = await fetchWithLog('/api/positions');
+        // Usar parâmetro user_id similar à outra plataforma
+        const response = await fetchWithLog('/api/positions?user_id=edilsonmatos');
         
         if (response.ok) {
           const savedPositions = await response.json();
@@ -400,29 +396,50 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
     return Array.isArray(data) ? data : [];
   }
 
-  // Hook para pré-carregar dados dos gráficos
-  const { preloadSymbols } = usePreloadCharts();
+  // Carregar todos os dados de arbitragem de uma vez
+  const { data: allData, isLoading: dataLoading, error: dataError, getMaxSpread } = useInitDataOptimized();
   
-  // Pré-carregar dados dos gráficos para símbolos visíveis usando o novo sistema de cache
-  useEffect(() => {
-    // Determina os símbolos visíveis na tabela
-    const symbols = opportunities
-      .filter(opp => {
-        const isSpotBuyFuturesSell = opp.buyAt && opp.sellAt && opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
-        const spread = opp.buyAt && opp.sellAt ? ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100 : 0;
-        if (isBigArb) {
-          return isSpotBuyFuturesSell && BIG_ARB_PAIRS.includes(opp.baseSymbol);
-        }
-        return isSpotBuyFuturesSell && spread >= minSpread;
-      })
-      .slice(0, maxOpportunities)
-      .map(opp => opp.baseSymbol);
+  console.log('[ArbitrageTable] Hook useInitData executado:', {
+    hasData: !!allData,
+    isLoading: dataLoading,
+    error: dataError,
+    spreads: Object.keys(allData?.spreads?.data || {}).length,
+    positions: allData?.positions?.closed?.length || 0
+  });
 
-    if (symbols.length > 0) {
-      console.log(`[ArbitrageTable] Pré-carregando dados para ${symbols.length} símbolos visíveis...`);
-      preloadSymbols(symbols);
+  // Teste simples para verificar se o hook está funcionando
+  useEffect(() => {
+    console.log('[ArbitrageTable] useEffect executado - testando hook');
+    if (allData) {
+      console.log('[ArbitrageTable] Dados carregados:', allData);
     }
-  }, [opportunities, isBigArb, minSpread, maxOpportunities, preloadSymbols]);
+  }, [allData]);
+
+  // DESABILITADO: Pré-carregar dados dos gráficos para símbolos visíveis usando o novo sistema de cache
+  // useEffect(() => {
+  //   // Determina os símbolos visíveis na tabela
+  //   const symbols = opportunities
+  //     .filter(opp => {
+  //       const isSpotBuyFuturesSell = opp.buyAt && opp.sellAt && opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
+  //       const spread = opp.buyAt && opp.sellAt ? ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100 : 0;
+  //       if (isBigArb) {
+  //         return isSpotBuyFuturesSell && BIG_ARB_PAIRS.includes(opp.baseSymbol);
+  //       }
+  //       return isSpotBuyFuturesSell && spread >= minSpread;
+  //     })
+  //     .slice(0, maxOpportunities)
+  //     .map(opp => opp.baseSymbol);
+
+  //   if (symbols.length > 0) {
+  //     console.log(`[ArbitrageTable] Pré-carregando dados para ${symbols.length} símbolos visíveis...`);
+  //     // Usar setTimeout para evitar sobrecarga imediata
+  //     const timeoutId = setTimeout(() => {
+  //       preloadSymbols(symbols);
+  //     }, 1000); // Aguardar 1 segundo antes de pré-carregar
+      
+  //     return () => clearTimeout(timeoutId);
+  //   }
+  // }, [opportunities, isBigArb, minSpread, maxOpportunities, preloadSymbols]);
 
 
   function calcularLucro(spreadValue: number) { 

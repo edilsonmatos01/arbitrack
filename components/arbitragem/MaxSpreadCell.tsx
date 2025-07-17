@@ -11,9 +11,10 @@ import {
 } from '@/components/ui/dialog';
 import SoundAlert from './SoundAlert';
 import { useSoundAlerts } from './useSoundAlerts';
+import { useInitDataOptimized } from './useInitDataOptimized';
 import InstantPriceComparisonChart from './InstantPriceComparisonChart';
 import InstantSpread24hChart from './InstantSpread24hChart';
-import { useChartCache } from '@/lib/chart-cache';
+// import { useChartCache } from '@/lib/chart-cache';
 
 // Funções de prefetch dos gráficos
 function prefetchSpread24h(symbol: string) {
@@ -81,75 +82,48 @@ interface SpreadStats {
   crosses: number;
 }
 
-// Cache em memória para evitar chamadas repetidas
-const cache = new Map<string, { data: SpreadStats; timestamp: number }>();
-const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutos
-
 export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h = null }: MaxSpreadCellProps) {
-  const [stats, setStats] = useState<SpreadStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [chartType, setChartType] = useState<'spread' | 'comparison'>('spread');
+  const [isChartLoading, setIsChartLoading] = useState(false);
   const { isAlertEnabled, toggleAlert } = useSoundAlerts();
-  const { prefetchData } = useChartCache();
+  
+  console.log(`[MaxSpreadCell] Renderizando componente para ${symbol}`);
+  
+  // Usar o novo hook otimizado
+  const { data, getMaxSpread, isLoading, error } = useInitDataOptimized();
+  const maxSpread = getMaxSpread(symbol);
 
-  // Buscar dados do spread máximo real das últimas 24 horas
-  useEffect(() => {
-    const fetchStats = async () => {
-      const cached = cache.get(symbol);
-      if (cached && (Date.now() - cached.timestamp < CACHE_DURATION_MS)) {
-        setStats(cached.data);
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      try {
-        console.log(`[MaxSpreadCell] Buscando spread máximo real para ${symbol}...`);
-        const response = await fetch(`/api/spreads/${encodeURIComponent(symbol)}/max`);
-        
-        if (!response.ok) {
-          console.warn(`[MaxSpreadCell] Erro ao buscar spread máximo para ${symbol}: ${response.status} ${response.statusText}`);
-          setStats(null);
-          return;
-        }
-        
-        const data: SpreadStats = await response.json();
-        console.log(`[MaxSpreadCell] Dados recebidos para ${symbol}:`, data);
-        
-        // Se não houver dados suficientes, mostra N/D
-        if (data.spMax === null || data.crosses < 2) {
-          setStats({ spMax: null, crosses: data.crosses });
-        } else {
-          setStats(data);
-        }
-        
-        cache.set(symbol, { data, timestamp: Date.now() });
-      } catch (error) {
-        console.warn(`[MaxSpreadCell] Erro de rede ao buscar spread máximo para ${symbol}:`, error instanceof Error ? error.message : 'Erro desconhecido');
-        setStats(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, [symbol]);
+  console.log(`[MaxSpreadCell] ${symbol}:`, {
+    isLoading,
+    maxSpread,
+    hasData: maxSpread > 0,
+    error,
+    symbol,
+    currentSpread,
+    maxSpread24h,
+    hasInitData: !!data,
+    initDataSpreads: Object.keys(data?.spreads?.data || {}).length
+  });
 
   // Reset chart type when modal closes
   useEffect(() => {
     if (!isModalOpen) {
       setChartType('spread');
+      setIsChartLoading(false);
     }
   }, [isModalOpen]);
 
-  // Pré-carregar dados dos gráficos ao abrir o modal
-  useEffect(() => {
-    if (isModalOpen) {
-      console.log(`[MaxSpreadCell] Pré-carregando dados para ${symbol}...`);
-      prefetchData(symbol);
-    }
-  }, [isModalOpen, symbol, prefetchData]);
+  // Pré-carregar dados quando modal abrir - otimizado para carregamento rápido
+  const handleModalOpen = () => {
+    setIsModalOpen(true);
+    setIsChartLoading(true);
+    
+    // Carregamento instantâneo similar à outra plataforma
+    setTimeout(() => {
+      setIsChartLoading(false);
+    }, 50); // Reduzido de 100ms para 50ms
+  };
 
   const getSpreadColor = (spread: number) => {
     if (spread > 2) return 'text-green-400';
@@ -157,22 +131,38 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
     return 'text-gray-400';
   };
 
+  // Renderização simplificada para teste
   if (isLoading) {
     return <span className="text-gray-500">Carregando...</span>;
   }
 
-  if (!stats || stats.spMax === null || stats.crosses < 2) {
-    return <span className="text-gray-400">N/D</span>;
+  if (error) {
+    return <span className="text-red-400">Erro: {error}</span>;
   }
 
+  if (maxSpread === 0) {
+    console.log(`[MaxSpreadCell] Mostrando N/D para ${symbol} - maxSpread: ${maxSpread}`);
+    return (
+      <div className="text-gray-400">
+        <div>N/D</div>
+        <div className="text-xs">Debug: {maxSpread}</div>
+        <div className="text-xs">Buscado: {symbol.replace(/[-/]/g, '_').toUpperCase()}</div>
+        <div className="text-xs">Disponíveis: {Object.keys(data?.spreads?.data || {}).join(', ') || 'Nenhum'}</div>
+        <div className="text-xs">InitData: {data ? 'Carregado' : 'Não carregado'}</div>
+      </div>
+    );
+  }
+
+  console.log(`[MaxSpreadCell] Exibindo valor para ${symbol}: ${maxSpread}%`);
+  
   return (
     <div className="flex items-center space-x-2">
       <div className="flex-1">
-        <div className={`text-sm font-bold ${getSpreadColor(stats.spMax)}`}>
-          {stats.spMax.toFixed(2)}%
+        <div className={`text-sm font-bold ${getSpreadColor(maxSpread)}`}>
+          {maxSpread.toFixed(2)}%
         </div>
         <div className="text-xs text-gray-400">
-          Spread máximo 24h ({stats.crosses} registros)
+          Spread máximo 24h
         </div>
       </div>
       
@@ -180,14 +170,17 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
         <SoundAlert 
           symbol={symbol}
           currentSpread={currentSpread}
-          maxSpread24h={stats.spMax}
+          maxSpread24h={maxSpread}
           isEnabled={isAlertEnabled(symbol)}
           onToggle={(enabled) => toggleAlert(symbol, enabled)}
         />
         
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
-            <button className="p-1 text-gray-400 hover:text-white transition-colors">
+            <button 
+              onClick={handleModalOpen}
+              className="p-1 text-gray-400 hover:text-white transition-colors"
+            >
               <ChartIcon className="h-5 w-5" />
             </button>
           </DialogTrigger>
@@ -212,10 +205,21 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
               </div>
             </DialogHeader>
             <div className="flex-1 min-h-0 mt-4">
-              {chartType === 'spread' ? (
-                <InstantSpread24hChart symbol={symbol} />
+              {isChartLoading ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-custom-cyan mx-auto mb-2"></div>
+                    <div className="text-gray-400">Carregando gráfico...</div>
+                  </div>
+                </div>
               ) : (
-                <InstantPriceComparisonChart symbol={symbol} />
+                <>
+                  {chartType === 'spread' ? (
+                    <InstantSpread24hChart symbol={symbol} />
+                  ) : (
+                    <InstantPriceComparisonChart symbol={symbol} />
+                  )}
+                </>
               )}
             </div>
           </DialogContent>

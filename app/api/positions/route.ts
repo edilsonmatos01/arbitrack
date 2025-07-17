@@ -3,48 +3,94 @@ import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-// GET - Buscar todas as posições
+// Cache em memória para melhorar performance
+const positionsCache = new Map();
+const CACHE_DURATION = 30 * 1000; // 30 segundos
+
+// GET - Buscar posições com filtro por usuário
 export async function GET(req: NextRequest) {
   console.log('[API] GET /api/positions - Iniciando...');
   
   try {
+    const { searchParams } = new URL(req.url);
+    const userId = searchParams.get('user_id');
+    const id = searchParams.get('id');
+    const cacheKey = `positions_${userId || 'all'}_${id || 'list'}`;
+
+    console.log('[API] Parâmetros:', { userId, id });
+
+    // Verificar cache primeiro
+    const cached = positionsCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+      console.log('[API] Retornando dados do cache');
+      return NextResponse.json(cached.data);
+    }
+
+    // Se não há prisma, retornar dados mockados para performance
     if (!prisma) {
-      console.warn('[API] Aviso: Banco de dados não disponível');
-      return NextResponse.json([]);
+      console.warn('[API] Banco de dados não disponível, retornando dados mockados');
+      const mockData: any[] = [];
+      positionsCache.set(cacheKey, { data: mockData, timestamp: Date.now() });
+      return NextResponse.json(mockData);
     }
 
-    // Verificar conexão com o banco
-    try {
-      if (prisma) {
-        await prisma.$connect();
-        console.log('[API] Conexão com banco estabelecida');
-      }
-    } catch (dbError) {
-      console.error('[API] Erro ao conectar com banco:', dbError);
-      return NextResponse.json({ error: 'Erro de conexão com banco de dados' }, { status: 503 });
-    }
-
-    const positions = await prisma.position.findMany({
-      orderBy: {
-        createdAt: 'desc'
-      }
+    // Timeout reduzido para 3 segundos (mais agressivo)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Timeout')), 3000);
     });
+
+    let positionsPromise;
+
+    if (id) {
+      // Buscar posição específica por ID
+      positionsPromise = prisma.position.findUnique({
+        where: { id }
+      }).then(pos => pos ? [pos] : []);
+    } else {
+      // Buscar posições com filtros otimizados
+      const whereClause: any = {};
+      
+      // Adicionar filtro por usuário se fornecido
+      if (userId) {
+        // Por enquanto, não temos campo user_id, então buscamos todas
+        // TODO: Implementar filtro por usuário quando o schema for atualizado
+        console.log('[API] Filtro por usuário solicitado:', userId);
+      }
+
+      positionsPromise = prisma.position.findMany({
+        where: whereClause,
+        orderBy: {
+          createdAt: 'desc'
+        },
+        take: 20, // Reduzido ainda mais para melhor performance
+        select: {
+          id: true,
+          symbol: true,
+          quantity: true,
+          spotEntry: true,
+          futuresEntry: true,
+          spotExchange: true,
+          futuresExchange: true,
+          isSimulated: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+    }
+
+    const positions = await Promise.race([positionsPromise, timeoutPromise]) as any[];
+
+    // Armazenar no cache
+    positionsCache.set(cacheKey, { data: positions, timestamp: Date.now() });
 
     console.log(`[API] ${positions.length} posições encontradas`);
     return NextResponse.json(positions);
   } catch (error) {
     console.error('[API] Erro ao buscar posições:', error);
     
-    // Retornar array vazio em caso de erro para não quebrar o frontend
-    return NextResponse.json([]);
-  } finally {
-    try {
-      if (prisma) {
-        await prisma.$disconnect();
-      }
-    } catch (disconnectError) {
-      console.warn('[API] Erro ao desconectar banco:', disconnectError);
-    }
+    // Retornar dados mockados em caso de erro para não quebrar o frontend
+    const mockData: any[] = [];
+    return NextResponse.json(mockData);
   }
 }
 
