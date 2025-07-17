@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { LineChart as ChartIcon, X } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { LineChart as ChartIcon } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -95,6 +95,35 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   const { data, getMaxSpread, isLoading, error } = useInitDataOptimized();
   const maxSpread = getMaxSpread(symbol);
 
+  // Funções estáveis usando useCallback para evitar re-renderizações desnecessárias
+  const handleModalOpen = useCallback(() => {
+    setIsModalOpen(true);
+    modalStateRef.current.isOpen = true;
+    setIsChartLoading(true);
+    
+    // Carregamento instantâneo similar à outra plataforma
+    setTimeout(() => {
+      setIsChartLoading(false);
+    }, 50);
+  }, []);
+
+  const handleChartTypeChange = useCallback((newType: 'spread' | 'comparison') => {
+    setChartType(newType);
+    modalStateRef.current.chartType = newType;
+  }, []);
+
+  const handleModalClose = useCallback((open: boolean) => {
+    if (!open) {
+      // Só fechar se o usuário realmente quiser fechar
+      modalStateRef.current.isOpen = false;
+      setIsModalOpen(false);
+    } else {
+      // Se está tentando abrir, permitir
+      modalStateRef.current.isOpen = true;
+      setIsModalOpen(true);
+    }
+  }, []);
+
   // Restaurar estado do modal após re-renderizações
   useEffect(() => {
     if (modalStateRef.current.isOpen && !isModalOpen) {
@@ -111,37 +140,6 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
       modalStateRef.current.chartType = 'spread';
     }
   }, [isModalOpen]);
-
-  // Pré-carregar dados quando modal abrir - otimizado para carregamento rápido
-  const handleModalOpen = () => {
-    setIsModalOpen(true);
-    modalStateRef.current.isOpen = true;
-    setIsChartLoading(true);
-    
-    // Carregamento instantâneo similar à outra plataforma
-    setTimeout(() => {
-      setIsChartLoading(false);
-    }, 50); // Reduzido de 100ms para 50ms
-  };
-
-  // Função para lidar com mudanças no tipo de gráfico
-  const handleChartTypeChange = (newType: 'spread' | 'comparison') => {
-    setChartType(newType);
-    modalStateRef.current.chartType = newType;
-  };
-
-  // Função para lidar com fechamento do modal
-  const handleModalClose = (open: boolean) => {
-    if (!open) {
-      // Só fechar se o usuário realmente quiser fechar
-      modalStateRef.current.isOpen = false;
-      setIsModalOpen(false);
-    } else {
-      // Se está tentando abrir, permitir
-      modalStateRef.current.isOpen = true;
-      setIsModalOpen(true);
-    }
-  };
 
   const getSpreadColor = (spread: number) => {
     if (spread > 2) return 'text-green-400';
@@ -203,27 +201,18 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
             <DialogHeader>
               <div className="flex items-center justify-between">
                 <DialogTitle>Análise de {symbol}</DialogTitle>
-                <div className="flex items-center gap-2">
-                  <div className="flex bg-gray-800 rounded-lg p-1">
-                    <button
-                      className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'spread' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                      onClick={() => handleChartTypeChange('spread')}
-                    >
-                      Spread 24h
-                    </button>
-                    <button
-                      className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'comparison' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                      onClick={() => handleChartTypeChange('comparison')}
-                    >
-                      Spot vs Futures
-                    </button>
-                  </div>
+                <div className="flex bg-gray-800 rounded-lg p-1">
                   <button
-                    onClick={() => handleModalClose(false)}
-                    className="p-2 text-gray-400 hover:text-white transition-colors rounded-md hover:bg-gray-700"
-                    title="Fechar"
+                    className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'spread' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                    onClick={() => handleChartTypeChange('spread')}
                   >
-                    <X className="h-5 w-5" />
+                    Spread 24h
+                  </button>
+                  <button
+                    className={`px-3 py-1 rounded-md text-sm font-semibold transition-colors ${chartType === 'comparison' ? 'bg-custom-cyan text-black' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                    onClick={() => handleChartTypeChange('comparison')}
+                  >
+                    Spot vs Futures
                   </button>
                 </div>
               </div>
