@@ -170,6 +170,10 @@ async function recordSpread(opportunity: ArbitrageOpportunity) {
         return;
     }
 
+    // Adicionar campos spotPrice e futuresPrice
+    const spotPrice = opportunity.buyAt.marketType === 'spot' ? opportunity.buyAt.price : opportunity.sellAt.price;
+    const futuresPrice = opportunity.buyAt.marketType === 'futures' ? opportunity.buyAt.price : opportunity.sellAt.price;
+
     try {
         await prisma.spreadHistory.create({
             data: {
@@ -178,10 +182,19 @@ async function recordSpread(opportunity: ArbitrageOpportunity) {
                 exchangeSell: opportunity.sellAt.exchange,
                 direction: opportunity.arbitrageType,
                 spread: opportunity.profitPercentage,
+                spotPrice: spotPrice,
+                futuresPrice: futuresPrice,
             },
         });
-    } catch (error) {
-        console.error(`[Prisma] Erro ao gravar spread para ${opportunity.baseSymbol}:`, error);
+    } catch (error: any) {
+        // Tratar erros de pool de conexão de forma mais silenciosa
+        if (error.code === 'P2024' || error.code === 'P1017') {
+            if (process.env.NODE_ENV === 'development') {
+                console.warn(`[Prisma] Pool de conexões esgotado para ${opportunity.baseSymbol} - tentando novamente em breve`);
+            }
+        } else {
+            console.error(`[Prisma] Erro ao gravar spread para ${opportunity.baseSymbol}:`, error);
+        }
     }
 }
 
