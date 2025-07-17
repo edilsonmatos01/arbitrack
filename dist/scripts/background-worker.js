@@ -1,36 +1,35 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-const mexc_connector_1 = require("./connectors/mexc-connector");
-async function startWorker() {
-    console.log('[Worker] Iniciando worker em segundo plano...');
-    const mexcSpot = new mexc_connector_1.MexcConnector('MEXC Spot', (data) => {
-        console.log('[MEXC Spot] Atualização de preço:', JSON.stringify(data));
-    }, () => {
-        console.log('[MEXC Spot] Conexão estabelecida');
-    });
-    console.log('[Worker] Iniciando conexão MEXC...');
-    mexcSpot.connect();
-    const symbols = [
-        'BTC/USDT',
-        'ETH/USDT',
-        'SOL/USDT',
-        'XRP/USDT',
-        'BNB/USDT'
-    ];
-    setTimeout(() => {
-        console.log('[Worker] Iniciando subscrições MEXC...');
-        mexcSpot.subscribe(symbols);
-    }, 5000);
-    process.on('SIGINT', () => {
-        console.log('[Worker] Recebido sinal de encerramento, desconectando...');
-        mexcSpot.disconnect();
-        process.exit(0);
-    });
-    console.log(`[Worker ${new Date().toISOString()}] Iniciando monitoramento...`);
-    return { mexcSpot };
+const node_fetch_1 = __importDefault(require("node-fetch"));
+const SYMBOLS = [
+    'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'AVAX/USDT', 'DOT/USDT', 'TRX/USDT', 'LTC/USDT',
+    'MATIC/USDT', 'LINK/USDT', 'ATOM/USDT', 'NEAR/USDT', 'FIL/USDT', 'AAVE/USDT', 'UNI/USDT', 'FTM/USDT', 'INJ/USDT', 'RNDR/USDT',
+    'ARB/USDT', 'OP/USDT', 'SUI/USDT', 'LDO/USDT', 'DYDX/USDT', 'GRT/USDT', '1INCH/USDT',
+    'APE/USDT', 'GMT/USDT', 'FLOW/USDT', 'PEPE/USDT', 'FLOKI/USDT', 'BONK/USDT',
+    'DOGE/USDT', 'SHIB/USDT', 'WIF/USDT', 'TURBO/USDT', '1000SATS/USDT',
+    'TON/USDT', 'APT/USDT', 'SEI/USDT'
+];
+const BASE_URL = process.env.BACKEND_URL || 'http://localhost:10000';
+async function prefetchAll() {
+    for (const symbol of SYMBOLS) {
+        try {
+            const spreadRes = await (0, node_fetch_1.default)(`${BASE_URL}/api/spread-history/24h/${encodeURIComponent(symbol)}`);
+            if (spreadRes.ok) {
+                console.log(`[Worker] Spread 24h cache atualizado para ${symbol}`);
+            }
+            const priceRes = await (0, node_fetch_1.default)(`${BASE_URL}/api/price-comparison/${encodeURIComponent(symbol)}`);
+            if (priceRes.ok) {
+                console.log(`[Worker] Spot vs Futures cache atualizado para ${symbol}`);
+            }
+        }
+        catch (err) {
+            console.error(`[Worker] Erro ao atualizar cache para ${symbol}:`, err);
+        }
+    }
 }
-startWorker().catch(error => {
-    console.error('[Worker] Erro fatal:', error);
-    process.exit(1);
-});
+setInterval(prefetchAll, 5 * 60 * 1000);
+prefetchAll();
 //# sourceMappingURL=background-worker.js.map

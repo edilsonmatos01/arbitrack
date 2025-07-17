@@ -116,6 +116,8 @@ async function monitorAndStore() {
               "exchangeSell",
               "direction",
               "spread",
+              "spotPrice",
+              "futuresPrice",
               "timestamp"
             ) VALUES (
               gen_random_uuid(),
@@ -124,6 +126,8 @@ async function monitorAndStore() {
               'MEXC',
               'spot-to-future',
               ${gateioSpotToMexcFutures},
+              ${Number(gateioSpotPrice)},
+              ${Number(mexcFuturesPrice)},
               ${timestamp}
             )
           `,
@@ -135,6 +139,8 @@ async function monitorAndStore() {
               "exchangeSell",
               "direction",
               "spread",
+              "spotPrice",
+              "futuresPrice",
               "timestamp"
             ) VALUES (
               gen_random_uuid(),
@@ -143,6 +149,8 @@ async function monitorAndStore() {
               'GATEIO',
               'spot-to-future',
               ${mexcSpotToGateioFutures},
+              ${Number(mexcSpotPrice)},
+              ${Number(gateioFuturesPrice)},
               ${timestamp}
             )
           `
