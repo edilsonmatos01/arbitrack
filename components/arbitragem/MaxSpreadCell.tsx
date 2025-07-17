@@ -88,23 +88,9 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   const [isChartLoading, setIsChartLoading] = useState(false);
   const { isAlertEnabled, toggleAlert } = useSoundAlerts();
   
-  console.log(`[MaxSpreadCell] Renderizando componente para ${symbol}`);
-  
   // Usar o novo hook otimizado
   const { data, getMaxSpread, isLoading, error } = useInitDataOptimized();
   const maxSpread = getMaxSpread(symbol);
-
-  console.log(`[MaxSpreadCell] ${symbol}:`, {
-    isLoading,
-    maxSpread,
-    hasData: maxSpread > 0,
-    error,
-    symbol,
-    currentSpread,
-    maxSpread24h,
-    hasInitData: !!data,
-    initDataSpreads: Object.keys(data?.spreads?.data || {}).length
-  });
 
   // Reset chart type when modal closes
   useEffect(() => {
@@ -141,20 +127,13 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   }
 
   if (maxSpread === 0) {
-    console.log(`[MaxSpreadCell] Mostrando N/D para ${symbol} - maxSpread: ${maxSpread}`);
     return (
       <div className="text-gray-400">
         <div>N/D</div>
-        <div className="text-xs">Debug: {maxSpread}</div>
-        <div className="text-xs">Buscado: {symbol.replace(/[-/]/g, '_').toUpperCase()}</div>
-        <div className="text-xs">Disponíveis: {Object.keys(data?.spreads?.data || {}).join(', ') || 'Nenhum'}</div>
-        <div className="text-xs">InitData: {data ? 'Carregado' : 'Não carregado'}</div>
       </div>
     );
   }
 
-  console.log(`[MaxSpreadCell] Exibindo valor para ${symbol}: ${maxSpread}%`);
-  
   return (
     <div className="flex items-center space-x-2">
       <div className="flex-1">
