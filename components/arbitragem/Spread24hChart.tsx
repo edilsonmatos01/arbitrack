@@ -75,25 +75,31 @@ export default function Spread24hChart({ symbol }: Spread24hChartProps) {
 
   // Função para buscar dados com cache local
   const loadData = useCallback(async () => {
+    console.log(`[Spread24hChart] Carregando dados para ${symbol}...`);
     setLoading(true);
     setError(null);
     const cacheKey = symbol;
     const cached = localCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+      console.log(`[Spread24hChart] Usando cache para ${symbol}: ${cached.data.length} pontos`);
       setData(cached.data);
       setLastUpdate(new Date(cached.timestamp));
       setLoading(false);
       return;
     }
     try {
+      console.log(`[Spread24hChart] Fazendo fetch para ${symbol}...`);
       const response = await fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`);
       if (!response.ok) throw new Error('Erro ao buscar dados do spread 24h');
       const result = await response.json();
+      console.log(`[Spread24hChart] Resposta da API para ${symbol}:`, result.length, 'pontos');
       if (!Array.isArray(result)) throw new Error('Formato de dados inválido');
       setData(result);
       setLastUpdate(new Date());
       localCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      console.log(`[Spread24hChart] Dados salvos no cache para ${symbol}`);
     } catch (err: any) {
+      console.error(`[Spread24hChart] Erro para ${symbol}:`, err);
       setError(err.message || 'Erro ao carregar dados');
       setData([]);
     } finally {
@@ -102,6 +108,10 @@ export default function Spread24hChart({ symbol }: Spread24hChartProps) {
   }, [symbol]);
 
   useEffect(() => {
+    // Limpar cache para forçar nova busca
+    localCache.delete(symbol);
+    console.log(`[Spread24hChart] Cache limpo para ${symbol}`);
+    
     loadData();
     const interval = setInterval(loadData, 5 * 60 * 1000); // Atualiza a cada 5 min
     return () => clearInterval(interval);

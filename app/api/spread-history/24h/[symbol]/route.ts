@@ -55,13 +55,16 @@ export async function GET(
       return NextResponse.json([]);
     }
 
-    // Verificar cache primeiro
+    // Verificar cache primeiro (desabilitado temporariamente para debug)
     const cacheKey = `spread-history-24h-${symbol}`;
     const cachedData = cache.get(cacheKey);
     if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (24h)`);
-      return NextResponse.json(cachedData.data);
+      // return NextResponse.json(cachedData.data); // Desabilitado para debug
     }
+    
+    // Forçar nova busca para debug
+    console.log(`[API] Forçando nova busca para ${symbol} (cache desabilitado)`);
 
     console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
     const startTime = Date.now();
@@ -97,6 +100,7 @@ export async function GET(
     console.log(`Encontrados ${spreadHistory.length} registros para ${symbol} em ${Date.now() - startTime}ms`);
 
     if (spreadHistory.length === 0) {
+      console.log(`[API] Nenhum registro encontrado para ${symbol}`);
       // Salvar resultado vazio no cache
       cache.set(cacheKey, {
         data: [],
@@ -104,6 +108,9 @@ export async function GET(
       });
       return NextResponse.json([]);
     }
+
+    console.log(`[API] Primeiros 3 registros:`, spreadHistory.slice(0, 3));
+    console.log(`[API] Últimos 3 registros:`, spreadHistory.slice(-3));
 
     // Agrupar dados em intervalos de 30 minutos usando Map
     const groupedData = new Map<string, { max: number; count: number }>();
@@ -147,7 +154,7 @@ export async function GET(
         timestamp,
         spread_percentage: data.max
       }))
-      .filter(item => item.spread_percentage > 0)
+      .filter(item => item.spread_percentage > 0 && item.timestamp) // Garantir que tem timestamp válido
       .sort((a, b) => {
         const [dateA, timeA] = a.timestamp.split(' - ');
         const [dateB, timeB] = b.timestamp.split(' - ');
@@ -161,6 +168,14 @@ export async function GET(
         if (hourA !== hourB) return hourA - hourB;
         return minuteA - minuteB;
       });
+
+    console.log(`[API] Dados agrupados: ${groupedData.size} intervalos`);
+    console.log(`[API] Dados formatados: ${formattedData.length} pontos`);
+    
+    if (formattedData.length === 0) {
+      console.log(`[API] AVISO: Dados formatados estão vazios para ${symbol}`);
+      console.log(`[API] Verificando groupedData:`, Array.from(groupedData.entries()).slice(0, 3));
+    }
 
     // Salvar no cache
     cache.set(cacheKey, {
