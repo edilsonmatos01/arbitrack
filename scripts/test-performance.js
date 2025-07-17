@@ -1,105 +1,119 @@
-// Script para testar a performance dos novos componentes otimizados
-console.log('🚀 TESTE DE PERFORMANCE DOS GRÁFICOS OTIMIZADOS');
-console.log('================================================\n');
+const fetch = require('node-fetch');
 
-// Simular carregamento de dados
-async function testChartPerformance() {
-  const symbols = ['WHITE_USDT', 'KEKIUS_USDT', 'BTC_USDT', 'ETH_USDT'];
+async function testPagePerformance() {
+  console.log('=== TESTE DE PERFORMANCE DAS PÁGINAS ===');
   
-  console.log('1️⃣ TESTE DE CARREGAMENTO INICIAL');
-  console.log('----------------------------------');
+  const baseURL = 'http://localhost:10000';
+  const pages = [
+    '/',
+    '/dashboard',
+    '/arbitragem',
+    '/big-arb',
+    '/carteiras',
+    '/historico',
+    '/configuracoes'
+  ];
   
-  for (const symbol of symbols) {
-    const startTime = Date.now();
+  for (const page of pages) {
+    console.log(`\n📄 Testando: ${page}`);
     
     try {
-      // Testar API de spread history
-      const spreadResponse = await fetch(`http://localhost:10000/api/spread-history/24h/${symbol}`);
-      const spreadData = await spreadResponse.json();
+      const startTime = Date.now();
       
-      // Testar API de price comparison
-      const priceResponse = await fetch(`http://localhost:10000/api/price-comparison/${symbol}`);
-      const priceData = await priceResponse.json();
+      const response = await fetch(`${baseURL}${page}`, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        timeout: 30000 // 30 segundos
+      });
       
       const endTime = Date.now();
       const duration = endTime - startTime;
       
-      console.log(`✅ ${symbol}:`);
-      console.log(`   - Spread History: ${spreadData.length} pontos`);
-      console.log(`   - Price Comparison: ${priceData.length} pontos`);
-      console.log(`   - Tempo total: ${duration}ms`);
-      console.log(`   - Performance: ${duration < 1000 ? 'EXCELENTE' : duration < 3000 ? 'BOA' : 'LENTA'}`);
+      console.log(`⏱️  Tempo de resposta: ${duration}ms`);
+      console.log(`📊 Status: ${response.status} ${response.statusText}`);
+      
+      if (response.ok) {
+        const contentLength = response.headers.get('content-length');
+        console.log(`📏 Tamanho: ${contentLength ? contentLength + ' bytes' : 'Desconhecido'}`);
+        
+        if (duration > 5000) {
+          console.log('⚠️  Página lenta (>5s)');
+        } else if (duration > 2000) {
+          console.log('⚠️  Página moderadamente lenta (>2s)');
+        } else {
+          console.log('✅ Página carregando normalmente');
+        }
+      } else {
+        console.log('❌ Erro na página');
+      }
       
     } catch (error) {
-      console.log(`❌ ${symbol}: Erro - ${error.message}`);
+      console.error('💥 Erro ao testar página:', error.message);
     }
   }
-  
-  console.log('\n2️⃣ TESTE DE CACHE');
-  console.log('------------------');
-  
-  // Testar segunda requisição (deve usar cache)
-  for (const symbol of symbols.slice(0, 2)) {
-    const startTime = Date.now();
-    
-    try {
-      const response = await fetch(`http://localhost:10000/api/spread-history/24h/${symbol}`);
-      const data = await response.json();
-      
-      const endTime = Date.now();
-      const duration = endTime - startTime;
-      
-      console.log(`✅ ${symbol} (cache):`);
-      console.log(`   - Tempo: ${duration}ms`);
-      console.log(`   - Cache funcionando: ${duration < 100 ? 'SIM' : 'NÃO'}`);
-      
-    } catch (error) {
-      console.log(`❌ ${symbol} (cache): Erro - ${error.message}`);
-    }
-  }
-  
-  console.log('\n3️⃣ TESTE DE CONCORRÊNCIA');
-  console.log('-------------------------');
-  
-  const startTime = Date.now();
-  const promises = symbols.map(symbol => 
-    fetch(`http://localhost:10000/api/spread-history/24h/${symbol}`).then(r => r.json())
-  );
-  
-  try {
-    const results = await Promise.all(promises);
-    const endTime = Date.now();
-    const duration = endTime - startTime;
-    
-    console.log(`✅ Carregamento paralelo de ${symbols.length} símbolos:`);
-    console.log(`   - Tempo total: ${duration}ms`);
-    console.log(`   - Tempo médio por símbolo: ${(duration / symbols.length).toFixed(0)}ms`);
-    console.log(`   - Performance: ${duration < 2000 ? 'EXCELENTE' : duration < 5000 ? 'BOA' : 'LENTA'}`);
-    
-    results.forEach((data, index) => {
-      console.log(`   - ${symbols[index]}: ${data.length} pontos`);
-    });
-    
-  } catch (error) {
-    console.log(`❌ Erro no teste de concorrência: ${error.message}`);
-  }
-  
-  console.log('\n4️⃣ RECOMENDAÇÕES DE OTIMIZAÇÃO');
-  console.log('-------------------------------');
-  
-  console.log('📊 Para melhorar ainda mais a performance:');
-  console.log('   - Cache em memória: ✅ Implementado');
-  console.log('   - Pré-carregamento: ✅ Implementado');
-  console.log('   - Componentes otimizados: ✅ Implementado');
-  console.log('   - Renderização instantânea: ✅ Implementado');
-  console.log('   - Atualizações em background: ✅ Implementado');
-  
-  console.log('\n🎯 PRÓXIMOS PASSOS:');
-  console.log('   - Monitorar performance em produção');
-  console.log('   - Ajustar duração do cache conforme necessário');
-  console.log('   - Implementar compressão de dados se necessário');
-  console.log('   - Considerar CDN para dados estáticos');
 }
 
-// Executar teste
-testChartPerformance().catch(console.error); 
+async function testAPIEndpoints() {
+  console.log('\n=== TESTE DE PERFORMANCE DAS APIs ===');
+  
+  const baseURL = 'http://localhost:10000';
+  const apis = [
+    '/api/health',
+    '/api/positions',
+    '/api/spreads/max',
+    '/api/average-spread',
+    '/api/spread-history/24h/BTC_USDT',
+    '/api/price-comparison/BTC_USDT'
+  ];
+  
+  for (const api of apis) {
+    console.log(`\n🔌 Testando: ${api}`);
+    
+    try {
+      const startTime = Date.now();
+      
+      const response = await fetch(`${baseURL}${api}`, {
+        method: 'GET',
+        timeout: 10000 // 10 segundos
+      });
+      
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      
+      console.log(`⏱️  Tempo de resposta: ${duration}ms`);
+      console.log(`📊 Status: ${response.status} ${response.statusText}`);
+      
+      if (response.ok) {
+        if (duration > 3000) {
+          console.log('⚠️  API lenta (>3s)');
+        } else if (duration > 1000) {
+          console.log('⚠️  API moderadamente lenta (>1s)');
+        } else {
+          console.log('✅ API respondendo rapidamente');
+        }
+      } else {
+        console.log('❌ API com erro');
+      }
+      
+    } catch (error) {
+      console.error('💥 Erro ao testar API:', error.message);
+    }
+  }
+}
+
+async function main() {
+  console.log('🚀 Iniciando testes de performance...\n');
+  
+  await testPagePerformance();
+  await testAPIEndpoints();
+  
+  console.log('\n=== RECOMENDAÇÕES ===');
+  console.log('1. Se páginas estão lentas, verifique os componentes React');
+  console.log('2. Se APIs estão lentas, verifique consultas ao banco');
+  console.log('3. Considere implementar cache para dados estáticos');
+  console.log('4. Verifique se há loops infinitos nos componentes');
+}
+
+main().catch(console.error); 

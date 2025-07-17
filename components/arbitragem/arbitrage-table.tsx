@@ -331,31 +331,48 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   useEffect(() => {
     const loadPositions = async () => {
       setIsLoadingPositions(true);
+      setError(null); // Limpar erros anteriores
+      
       try {
+        console.log('[ArbitrageTable] Carregando posições...');
         const response = await fetchWithLog('/api/positions');
+        
         if (response.ok) {
           const savedPositions = await response.json();
+          console.log(`[ArbitrageTable] ${savedPositions.length} posições carregadas da API`);
           setPositions(safeArray(savedPositions));
         } else {
-          setError('Erro ao carregar posições do banco de dados');
+          console.warn('[ArbitrageTable] API retornou erro, usando fallback localStorage');
           // Fallback para localStorage se a API falhar
           const localPositions = localStorage.getItem('arbitrage-positions');
           if (localPositions) {
-            const parsedPositions = JSON.parse(localPositions);
-            setPositions(safeArray(parsedPositions));
+            try {
+              const parsedPositions = JSON.parse(localPositions);
+              setPositions(safeArray(parsedPositions));
+              console.log(`[ArbitrageTable] ${parsedPositions.length} posições carregadas do localStorage`);
+            } catch (parseError) {
+              console.error('[ArbitrageTable] Erro ao parsear localStorage:', parseError);
+              setPositions([]);
+            }
+          } else {
+            setPositions([]);
           }
         }
       } catch (error) {
-        setError('Erro de conexão ao carregar posições');
+        console.error('[ArbitrageTable] Erro de conexão:', error);
         // Fallback para localStorage se a API falhar
         const localPositions = localStorage.getItem('arbitrage-positions');
         if (localPositions) {
           try {
             const parsedPositions = JSON.parse(localPositions);
             setPositions(safeArray(parsedPositions));
+            console.log(`[ArbitrageTable] ${parsedPositions.length} posições carregadas do localStorage (fallback)`);
           } catch (parseError) {
-            setError('Erro ao ler posições do localStorage');
+            console.error('[ArbitrageTable] Erro ao ler posições do localStorage:', parseError);
+            setPositions([]);
           }
+        } else {
+          setPositions([]);
         }
       } finally {
         setIsLoadingPositions(false);
@@ -367,12 +384,13 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   
 
   
-  // Hook de oportunidades sempre chamado, mas só conecta se enabled=true
+    // Hook de oportunidades sempre chamado, mas só conecta se enabled=true
   const { opportunities: opportunitiesRaw, livePrices } = useArbitrageWebSocket(!isPaused);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string|null>(null);
   const [successMessage, setSuccessMessage] = useState<string|null>(null);
 
+  
   // Fallback seguro para oportunidades e posições
   const opportunities: any[] = safeArray<any>(opportunitiesRaw);
   const safePositions = safeArray(positions);
@@ -1082,14 +1100,37 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                 {(() => {
                   try {
                     const safeOpps = safeArray(opportunities);
-                    if (!Array.isArray(safeOpps)) return null;
-                    return (safeOpps as any[])
+                    if (!Array.isArray(safeOpps)) {
+                      console.log('[ArbitrageTable] Opportunities não é um array válido:', safeOpps);
+                      return null;
+                    }
+                    
+                    // Otimização: processar apenas se houver dados
+                    if (safeOpps.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={6} className="text-center py-8 text-gray-400">
+                            Nenhuma oportunidade encontrada
+                          </td>
+                        </tr>
+                      );
+                    }
+                    
+                    const filteredOpps = (safeOpps as any[])
                       .filter((opp: any) => {
-                        const isSpotBuyFuturesSell = opp.buyAt && opp.sellAt && opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
-                        const spread = opp.buyAt && opp.sellAt ? ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100 : 0;
+                        // Validação básica da estrutura da oportunidade
+                        if (!opp || typeof opp !== 'object') return false;
+                        
+                        const isSpotBuyFuturesSell = opp.buyAt && opp.sellAt && 
+                          opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
+                        
+                        const spread = opp.buyAt && opp.sellAt ? 
+                          ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100 : 0;
+                        
                         if (isBigArb) {
                           return isSpotBuyFuturesSell && opp.baseSymbol && BIG_ARB_PAIRS.includes(opp.baseSymbol);
                         }
+                        
                         return isSpotBuyFuturesSell && spread >= minSpread;
                       })
                       .sort((a: any, b: any) => {
@@ -1097,8 +1138,9 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                         const spreadB = b.buyAt && b.sellAt ? ((b.sellAt.price - b.buyAt.price) / b.buyAt.price) * 100 : 0;
                         return spreadB - spreadA;
                       })
-                      .slice(0, maxOpportunities)
-                      .map((opp: any) => (
+                      .slice(0, maxOpportunities);
+                    
+                    return filteredOpps.map((opp: any) => (
                         <OpportunityRow
                           key={`${opp.baseSymbol}-${opp.buyAt.exchange}-${opp.sellAt.exchange}`}
                           opportunity={{
