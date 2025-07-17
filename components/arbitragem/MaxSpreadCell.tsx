@@ -11,8 +11,9 @@ import {
 } from '@/components/ui/dialog';
 import SoundAlert from './SoundAlert';
 import { useSoundAlerts } from './useSoundAlerts';
-import PriceComparisonChartCanvas from './PriceComparisonChartCanvas';
-import Spread24hChartCanvas from './Spread24hChartCanvas';
+import InstantPriceComparisonChart from './InstantPriceComparisonChart';
+import InstantSpread24hChart from './InstantSpread24hChart';
+import { useChartCache } from '@/lib/chart-cache';
 
 // Funções de prefetch dos gráficos
 function prefetchSpread24h(symbol: string) {
@@ -90,6 +91,7 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [chartType, setChartType] = useState<'spread' | 'comparison'>('spread');
   const { isAlertEnabled, toggleAlert } = useSoundAlerts();
+  const { prefetchData } = useChartCache();
 
   // Buscar dados do spread máximo real das últimas 24 horas
   useEffect(() => {
@@ -144,14 +146,10 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   // Pré-carregar dados dos gráficos ao abrir o modal
   useEffect(() => {
     if (isModalOpen) {
-      // @ts-ignore
-      window.Spread24hChart_localCache = window.Spread24hChart_localCache || new Map();
-      // @ts-ignore
-      window.PriceComparisonChart_localCache = window.PriceComparisonChart_localCache || new Map();
-      prefetchSpread24h(symbol);
-      prefetchPriceComparison(symbol);
+      console.log(`[MaxSpreadCell] Pré-carregando dados para ${symbol}...`);
+      prefetchData(symbol);
     }
-  }, [isModalOpen, symbol]);
+  }, [isModalOpen, symbol, prefetchData]);
 
   const getSpreadColor = (spread: number) => {
     if (spread > 2) return 'text-green-400';
@@ -215,9 +213,9 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
             </DialogHeader>
             <div className="flex-1 min-h-0 mt-4">
               {chartType === 'spread' ? (
-                <Spread24hChartCanvas symbol={symbol} />
+                <InstantSpread24hChart symbol={symbol} />
               ) : (
-                <PriceComparisonChartCanvas symbol={symbol} />
+                <InstantPriceComparisonChart symbol={symbol} />
               )}
             </div>
           </DialogContent>

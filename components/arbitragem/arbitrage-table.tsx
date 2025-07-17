@@ -10,6 +10,7 @@ import FinalizePositionModal from './FinalizePositionModal';
 import { OperationHistoryStorage } from '@/lib/operation-history-storage';
 import ExchangeBalances from './ExchangeBalances';
 import ConfirmOrderModal from './ConfirmOrderModal';
+import { usePreloadCharts, useHoverPreload } from './usePreloadCharts';
 
 const EXCHANGES = [
   { value: "gateio", label: "Gate.io" },
@@ -272,6 +273,9 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   const [spotExchange, setSpotExchange] = useState('gateio');
   const [futuresExchange, setFuturesExchange] = useState('mexc');
   const [isPaused, setIsPaused] = useState(true); // Agora inicia pausado
+  
+  // Pré-carregar dados dos gráficos
+  usePreloadCharts();
 
   // Estados para posições com persistência no banco de dados
   const [positions, setPositions] = useState<Position[]>([]);
@@ -378,8 +382,10 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
     return Array.isArray(data) ? data : [];
   }
 
-  // Prefetch dos dados históricos dos gráficos para todos os pares visíveis
+  // Pré-carregar dados dos gráficos para símbolos visíveis usando o novo sistema de cache
   useEffect(() => {
+    const { preloadSymbols } = usePreloadCharts();
+    
     // Determina os símbolos visíveis na tabela
     const symbols = opportunities
       .filter(opp => {
@@ -393,45 +399,10 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
       .slice(0, maxOpportunities)
       .map(opp => opp.baseSymbol);
 
-    // Prefetch Spread 24h com tratamento de erro
-    symbols.forEach(symbol => {
-      fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`)
-        .then(res => {
-          if (!res.ok) {
-            console.warn(`[PREFETCH] Erro ao buscar spread-history para ${symbol}: ${res.status}`);
-            return null;
-          }
-          return res.json();
-        })
-        .then(data => {
-          if (data) {
-            window.Spread24hChart_localCache = window.Spread24hChart_localCache || new Map();
-            window.Spread24hChart_localCache.set(symbol, { data, timestamp: Date.now() });
-          }
-        })
-        .catch(err => {
-          console.warn(`[PREFETCH] Erro de rede ao buscar spread-history para ${symbol}:`, err.message);
-        });
-
-      // Prefetch Spot vs Futures com tratamento de erro
-      fetch(`/api/price-comparison/${encodeURIComponent(symbol)}`)
-        .then(res => {
-          if (!res.ok) {
-            console.warn(`[PREFETCH] Erro ao buscar price-comparison para ${symbol}: ${res.status}`);
-            return null;
-          }
-          return res.json();
-        })
-        .then(data => {
-          if (data) {
-            window.PriceComparisonChart_localCache = window.PriceComparisonChart_localCache || new Map();
-            window.PriceComparisonChart_localCache.set(symbol, { data, timestamp: Date.now() });
-          }
-        })
-        .catch(err => {
-          console.warn(`[PREFETCH] Erro de rede ao buscar price-comparison para ${symbol}:`, err.message);
-        });
-    });
+    if (symbols.length > 0) {
+      console.log(`[ArbitrageTable] Pré-carregando dados para ${symbols.length} símbolos visíveis...`);
+      preloadSymbols(symbols);
+    }
   }, [opportunities, isBigArb, minSpread, maxOpportunities]);
 
 

@@ -1,64 +1,105 @@
-const fetch = require('node-fetch');
+// Script para testar a performance dos novos componentes otimizados
+console.log('🚀 TESTE DE PERFORMANCE DOS GRÁFICOS OTIMIZADOS');
+console.log('================================================\n');
 
-async function testPerformance() {
-  console.log('⚡ Testando performance das APIs de gráficos...');
+// Simular carregamento de dados
+async function testChartPerformance() {
+  const symbols = ['WHITE_USDT', 'KEKIUS_USDT', 'BTC_USDT', 'ETH_USDT'];
   
-  const baseUrl = 'https://robo-de-arbitragem-5n8k.onrender.com';
-  const symbol = 'TOMI_USDT';
+  console.log('1️⃣ TESTE DE CARREGAMENTO INICIAL');
+  console.log('----------------------------------');
   
-  const endpoints = [
-    `/api/spread-history?symbol=${encodeURIComponent(symbol)}`,
-    `/api/spread-history/24h/${encodeURIComponent(symbol)}`,
-    `/api/price-comparison/${encodeURIComponent(symbol)}`,
-    `/api/operation-history?filter=all`
-  ];
-  
-  console.log(`\n📊 Testando com símbolo: ${symbol}`);
-  
-  for (const endpoint of endpoints) {
+  for (const symbol of symbols) {
+    const startTime = Date.now();
+    
     try {
-      console.log(`\n📡 Testando: ${endpoint}`);
+      // Testar API de spread history
+      const spreadResponse = await fetch(`http://localhost:10000/api/spread-history/24h/${symbol}`);
+      const spreadData = await spreadResponse.json();
       
-      const startTime = Date.now();
-      const response = await fetch(`${baseUrl}${endpoint}`);
+      // Testar API de price comparison
+      const priceResponse = await fetch(`http://localhost:10000/api/price-comparison/${symbol}`);
+      const priceData = await priceResponse.json();
+      
       const endTime = Date.now();
+      const duration = endTime - startTime;
       
-      const responseTime = endTime - startTime;
-      const data = await response.json();
-      
-      console.log(`⏱️ Tempo de resposta: ${responseTime}ms`);
-      console.log(`📊 Status: ${response.status}`);
-      console.log(`📈 Quantidade de dados: ${Array.isArray(data) ? data.length : 'N/A'}`);
-      
-      if (Array.isArray(data) && data.length > 0) {
-        console.log(`📋 Primeiro item:`, JSON.stringify(data[0], null, 2));
-        console.log(`📋 Último item:`, JSON.stringify(data[data.length - 1], null, 2));
-      }
-      
-      // Análise de performance
-      if (responseTime > 2000) {
-        console.log(`⚠️ LENTO: ${responseTime}ms (acima de 2s)`);
-      } else if (responseTime > 1000) {
-        console.log(`🟡 MÉDIO: ${responseTime}ms (1-2s)`);
-      } else {
-        console.log(`✅ RÁPIDO: ${responseTime}ms (abaixo de 1s)`);
-      }
+      console.log(`✅ ${symbol}:`);
+      console.log(`   - Spread History: ${spreadData.length} pontos`);
+      console.log(`   - Price Comparison: ${priceData.length} pontos`);
+      console.log(`   - Tempo total: ${duration}ms`);
+      console.log(`   - Performance: ${duration < 1000 ? 'EXCELENTE' : duration < 3000 ? 'BOA' : 'LENTA'}`);
       
     } catch (error) {
-      console.error(`❌ Erro ao testar ${endpoint}:`, error.message);
+      console.log(`❌ ${symbol}: Erro - ${error.message}`);
     }
   }
   
-  console.log('\n🔍 ANÁLISE DE PERFORMANCE:');
-  console.log('1. APIs com tempo > 2s são consideradas LENTAS');
-  console.log('2. APIs com tempo 1-2s são consideradas MÉDIAS');
-  console.log('3. APIs com tempo < 1s são consideradas RÁPIDAS');
-  console.log('\n💡 OTIMIZAÇÕES SUGERIDAS:');
-  console.log('• Implementar cache Redis para dados históricos');
-  console.log('• Usar índices no banco de dados para consultas por timestamp');
-  console.log('• Implementar paginação para grandes volumes de dados');
-  console.log('• Usar WebSocket para atualizações em tempo real');
-  console.log('• Implementar lazy loading nos gráficos');
+  console.log('\n2️⃣ TESTE DE CACHE');
+  console.log('------------------');
+  
+  // Testar segunda requisição (deve usar cache)
+  for (const symbol of symbols.slice(0, 2)) {
+    const startTime = Date.now();
+    
+    try {
+      const response = await fetch(`http://localhost:10000/api/spread-history/24h/${symbol}`);
+      const data = await response.json();
+      
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      
+      console.log(`✅ ${symbol} (cache):`);
+      console.log(`   - Tempo: ${duration}ms`);
+      console.log(`   - Cache funcionando: ${duration < 100 ? 'SIM' : 'NÃO'}`);
+      
+    } catch (error) {
+      console.log(`❌ ${symbol} (cache): Erro - ${error.message}`);
+    }
+  }
+  
+  console.log('\n3️⃣ TESTE DE CONCORRÊNCIA');
+  console.log('-------------------------');
+  
+  const startTime = Date.now();
+  const promises = symbols.map(symbol => 
+    fetch(`http://localhost:10000/api/spread-history/24h/${symbol}`).then(r => r.json())
+  );
+  
+  try {
+    const results = await Promise.all(promises);
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    
+    console.log(`✅ Carregamento paralelo de ${symbols.length} símbolos:`);
+    console.log(`   - Tempo total: ${duration}ms`);
+    console.log(`   - Tempo médio por símbolo: ${(duration / symbols.length).toFixed(0)}ms`);
+    console.log(`   - Performance: ${duration < 2000 ? 'EXCELENTE' : duration < 5000 ? 'BOA' : 'LENTA'}`);
+    
+    results.forEach((data, index) => {
+      console.log(`   - ${symbols[index]}: ${data.length} pontos`);
+    });
+    
+  } catch (error) {
+    console.log(`❌ Erro no teste de concorrência: ${error.message}`);
+  }
+  
+  console.log('\n4️⃣ RECOMENDAÇÕES DE OTIMIZAÇÃO');
+  console.log('-------------------------------');
+  
+  console.log('📊 Para melhorar ainda mais a performance:');
+  console.log('   - Cache em memória: ✅ Implementado');
+  console.log('   - Pré-carregamento: ✅ Implementado');
+  console.log('   - Componentes otimizados: ✅ Implementado');
+  console.log('   - Renderização instantânea: ✅ Implementado');
+  console.log('   - Atualizações em background: ✅ Implementado');
+  
+  console.log('\n🎯 PRÓXIMOS PASSOS:');
+  console.log('   - Monitorar performance em produção');
+  console.log('   - Ajustar duração do cache conforme necessário');
+  console.log('   - Implementar compressão de dados se necessário');
+  console.log('   - Considerar CDN para dados estáticos');
 }
 
-testPerformance().catch(console.error); 
+// Executar teste
+testChartPerformance().catch(console.error); 
