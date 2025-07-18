@@ -5,6 +5,8 @@ import dbConnection from '@/lib/db-connection';
 export async function GET(req: NextRequest) {
   try {
     console.log('📡 GET /api/operation-history - Iniciando busca...');
+    console.log('🌐 Environment:', process.env.NODE_ENV);
+    console.log('🔗 DATABASE_URL:', process.env.DATABASE_URL ? 'Definida' : 'Não definida');
     
     const { searchParams } = new URL(req.url);
     const filter = searchParams.get('filter') || 'all'; // all, 24h, day, range
@@ -25,6 +27,17 @@ export async function GET(req: NextRequest) {
       // Buscar operações
       const operations = await dbConnection.getOperationHistory(100);
       console.log('✅ Operações encontradas:', operations.length);
+      
+      // Log detalhado das operações
+      if (operations.length > 0) {
+        const firstOp = operations[0] as any;
+        console.log('📝 Primeira operação:', {
+          id: firstOp.id,
+          symbol: firstOp.symbol,
+          profitLossUsd: firstOp.profitLossUsd,
+          createdAt: firstOp.createdAt
+        });
+      }
       
       // Aplicar filtros se necessário
       let filteredOperations = operations;
@@ -68,10 +81,15 @@ export async function GET(req: NextRequest) {
       }
       
       console.log('📋 Operações filtradas:', filteredOperations.length);
+      console.log('📤 Retornando dados para o frontend...');
       return NextResponse.json(filteredOperations);
       
     } catch (dbError) {
       console.error('[API] Erro ao buscar do banco:', dbError);
+      console.error('[API] Detalhes do erro:', {
+        message: dbError instanceof Error ? dbError.message : String(dbError),
+        stack: dbError instanceof Error ? dbError.stack : undefined
+      });
       // Continua com fallback
     }
 

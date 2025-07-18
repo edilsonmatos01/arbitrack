@@ -1,141 +1,83 @@
-const { PrismaClient } = require('@prisma/client');
+const { Pool } = require('pg');
 
-async function testRenderDatabase() {
-  console.log('🔍 TESTANDO CONEXÃO COM BANCO DE DADOS DA RENDER');
-  console.log('================================================\n');
-
-  // Verificar se a variável de ambiente está definida
-  const databaseUrl = process.env.DATABASE_URL;
+// URL do banco da Render (baseada no render.yaml)
+// Vamos tentar diferentes possibilidades
+const possibleUrls = [
+  // URL que estava funcionando localmente
+  'postgresql://arbitragem_banco_bdx8_user:eSa4DBin3bl9GI5DHmL9x1lXd4I329vT@dpg-d1i63eqdbo4c7387d2l0-a.oregon-postgres.render.com/arbitragem_banco_bdx8',
   
-  if (!databaseUrl) {
-    console.log('❌ DATABASE_URL não está definida');
-    console.log('💡 Verifique se o arquivo .env existe e contém a variável DATABASE_URL');
-    return;
-  }
+  // URL baseada no render.yaml (pode ser diferente)
+  'postgresql://arbitragem_banco_user:password@dpg-xxx-oregon-postgres.render.com/arbitragem_banco'
+];
 
-  console.log('✅ DATABASE_URL encontrada');
-  console.log(`📊 URL: ${databaseUrl.substring(0, 20)}...${databaseUrl.substring(databaseUrl.length - 10)}`);
+async function testDatabaseConnection(url, description) {
+  console.log(`\n🔍 Testando: ${description}`);
+  console.log(`🌐 URL (mascarada): ${url.substring(0, 50)}...`);
   
-  // Verificar se é uma URL da Render
-  if (databaseUrl.includes('render.com')) {
-    console.log('🌐 Banco de dados da Render detectado');
-  } else {
-    console.log('⚠️  Não parece ser um banco da Render');
-  }
-
-  const prisma = new PrismaClient({
-    datasources: {
-      db: {
-        url: databaseUrl
-      }
-    }
+  const pool = new Pool({
+    connectionString: url + '?sslmode=require&connect_timeout=60&application_name=arbitragem',
+    ssl: {
+      rejectUnauthorized: false
+    },
+    connectionTimeoutMillis: 60000,
+    query_timeout: 60000,
+    statement_timeout: 60000,
+    idleTimeoutMillis: 30000,
+    max: 5,
+    min: 1
   });
 
   try {
-    console.log('\n🔌 Tentando conectar...');
-    const startTime = Date.now();
+    const client = await pool.connect();
+    console.log('✅ Conexão estabelecida');
     
-    await prisma.$connect();
+    // Verificar tabelas
+    const tablesResult = await client.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      ORDER BY table_name
+    `);
     
-    const endTime = Date.now();
-    const duration = endTime - startTime;
+    console.log('📋 Tabelas encontradas:', tablesResult.rows.map(r => r.table_name));
     
-    console.log(`✅ Conexão estabelecida em ${duration}ms`);
-    
-    // Testar consulta simples
-    console.log('\n📊 Testando consulta...');
-    const tableCount = await prisma.spreadHistory.count();
-    console.log(`✅ Tabela SpreadHistory: ${tableCount} registros`);
-    
-    // Verificar registros recentes
-    if (tableCount > 0) {
-      const recentRecords = await prisma.spreadHistory.findMany({
-        take: 3,
-        orderBy: { timestamp: 'desc' },
-        select: {
-          symbol: true,
-          timestamp: true,
-          spotPrice: true,
-          futuresPrice: true,
-          spread: true
-        }
-      });
+    // Verificar OperationHistory
+    if (tablesResult.rows.some(r => r.table_name === 'OperationHistory')) {
+      const countResult = await client.query('SELECT COUNT(*) as count FROM "OperationHistory"');
+      const totalCount = parseInt(countResult.rows[0].count);
+      console.log(`📊 Total de operações: ${totalCount}`);
       
-      console.log('\n📅 ÚLTIMOS 3 REGISTROS:');
-      recentRecords.forEach((record, index) => {
-        console.log(`${index + 1}. ${record.symbol} - ${record.timestamp.toISOString()}`);
-        console.log(`   Spot: $${record.spotPrice}, Futures: $${record.futuresPrice}, Spread: ${record.spread}%`);
-      });
-    } else {
-      console.log('⚠️  Nenhum registro encontrado no banco');
-    }
-    
-    // Testar performance
-    console.log('\n⚡ Testando performance...');
-    const perfStart = Date.now();
-    
-    await prisma.spreadHistory.findMany({
-      take: 100,
-      orderBy: { timestamp: 'desc' }
-    });
-    
-    const perfEnd = Date.now();
-    const perfDuration = perfEnd - perfStart;
-    
-    console.log(`✅ Consulta de 100 registros: ${perfDuration}ms`);
-    
-    if (perfDuration < 1000) {
-      console.log('🚀 Performance excelente!');
-    } else if (perfDuration < 3000) {
-      console.log('⚠️  Performance moderada');
-    } else {
-      console.log('🐌 Performance lenta');
-    }
-    
-    // Verificar estrutura da tabela
-    console.log('\n🏗️  Verificando estrutura da tabela...');
-    try {
-      const sampleRecord = await prisma.spreadHistory.findFirst({
-        select: {
-          id: true,
-          symbol: true,
-          spotPrice: true,
-          futuresPrice: true,
-          spread: true,
-          timestamp: true
-        }
-      });
-      
-      if (sampleRecord) {
-        console.log('✅ Estrutura da tabela válida');
-        console.log('📋 Campos disponíveis: id, symbol, spotPrice, futuresPrice, spread, timestamp');
+      if (totalCount > 0) {
+        const operationsResult = await client.query(`
+          SELECT * FROM "OperationHistory" 
+          ORDER BY "createdAt" DESC 
+          LIMIT 3
+        `);
+        
+        console.log('📝 Operações encontradas:');
+        operationsResult.rows.forEach((op, index) => {
+          console.log(`   ${index + 1}. ID: ${op.id}, Symbol: ${op.symbol}, Profit: ${op.profitLossUsd}`);
+        });
       }
-    } catch (error) {
-      console.log('❌ Erro ao verificar estrutura:', error.message);
+    } else {
+      console.log('❌ Tabela OperationHistory não encontrada');
     }
+    
+    client.release();
     
   } catch (error) {
-    console.error('❌ Erro de conexão:', error.message);
-    
-    if (error.message.includes('ECONNREFUSED')) {
-      console.log('💡 Possível problema:');
-      console.log('   - Banco de dados não está rodando');
-      console.log('   - URL incorreta');
-      console.log('   - Firewall bloqueando conexão');
-    } else if (error.message.includes('authentication')) {
-      console.log('💡 Possível problema:');
-      console.log('   - Credenciais incorretas');
-      console.log('   - Usuário sem permissões');
-    } else if (error.message.includes('database')) {
-      console.log('💡 Possível problema:');
-      console.log('   - Banco de dados não existe');
-      console.log('   - Schema não criado');
-    }
+    console.log(`❌ Erro: ${error.message}`);
   } finally {
-    await prisma.$disconnect();
-    console.log('\n🔌 Conexão fechada');
+    await pool.end();
   }
 }
 
-// Executar teste
-testRenderDatabase().catch(console.error); 
+async function testAllDatabases() {
+  console.log('🔍 Testando diferentes configurações de banco...');
+  
+  for (let i = 0; i < possibleUrls.length; i++) {
+    await testDatabaseConnection(possibleUrls[i], `Configuração ${i + 1}`);
+  }
+}
+
+testAllDatabases(); 

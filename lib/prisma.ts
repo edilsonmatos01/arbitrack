@@ -1,10 +1,13 @@
 import { PrismaClient } from '@prisma/client';
 
+// URL correta do banco que contém os dados
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://arbitragem_banco_bdx8_user:eSa4DBin3bl9GI5DHmL9x1lXd4I329vT@dpg-d1i63eqdbo4c7387d2l0-a.oregon-postgres.render.com/arbitragem_banco_bdx8';
+
 // Configuração específica para Render com timeout
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.DATABASE_URL + '?sslmode=require&connect_timeout=60&application_name=arbitragem',
+      url: DATABASE_URL + '?sslmode=require&connect_timeout=60&application_name=arbitragem',
     },
   },
   log: ['error', 'warn'],
