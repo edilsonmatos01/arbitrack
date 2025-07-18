@@ -46,8 +46,7 @@ services:
     - tsconfig.scripts.json
     - tsconfig.server.json
     - tsconfig.tsbuildinfo
-    - websocket-server.ts
-    - websocket-server.js
+
     - server.js
     - dev-server.js
     - start-spread-monitor.js

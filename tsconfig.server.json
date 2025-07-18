@@ -31,5 +31,5 @@
     ]
   },
   "exclude": ["node_modules"],
-  "include": ["./src/**/*.ts", "./websocket-server.ts", "./scripts/**/*.ts", "./worker/**/*.ts"]
+  "include": ["./src/**/*.ts", "./scripts/**/*.ts", "./worker/**/*.ts"]
 } 
