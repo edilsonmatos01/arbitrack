@@ -1,8 +1,9 @@
-// WORKER COM SERVIDOR HTTP SIMPLES PARA RENDER
-// Este arquivo é um BACKGROUND WORKER com servidor HTTP para o Render
+// WORKER COM SERVIDOR HTTP E WEBSOCKET PARA RENDER
+// Este arquivo é um BACKGROUND WORKER com servidor HTTP e WebSocket para o Render
 
 import { PrismaClient } from '@prisma/client';
 import * as http from 'http';
+import * as WebSocket from 'ws';
 
 // Configurações
 const MONITORING_INTERVAL = 60 * 1000; // 1 minuto
@@ -10,6 +11,8 @@ const PORT = process.env.PORT || 10000;
 let isWorkerRunning = false;
 let isShuttingDown = false;
 let prisma: PrismaClient | null = null;
+let wss: any = null;
+let connectedClients: WebSocket[] = [];
 
 // Função para inicializar o Prisma
 async function initializePrisma(): Promise<void> {
@@ -37,6 +40,21 @@ async function initializePrisma(): Promise<void> {
   }
 }
 
+// Função para enviar dados via WebSocket
+function broadcastToClients(data: any): void {
+  if (connectedClients.length === 0) return;
+  
+  const message = JSON.stringify(data);
+  connectedClients.forEach((client, index) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    } else {
+      // Remove clientes desconectados
+      connectedClients.splice(index, 1);
+    }
+  });
+}
+
 // Função principal de monitoramento
 async function monitorAndStore(): Promise<void> {
   if (isWorkerRunning) {
@@ -59,6 +77,22 @@ async function monitorAndStore(): Promise<void> {
         console.log(`Par: ${symbol}`);
         console.log(`Spread: ${spread.toFixed(4)}%`);
         
+        // Preparar dados para WebSocket
+        const opportunityData = {
+          type: 'opportunity',
+          symbol: symbol,
+          spread: spread,
+          spotPrice: 50000 + Math.random() * 1000,
+          futuresPrice: 50000 + Math.random() * 1000,
+          timestamp: new Date().toISOString(),
+          exchangeBuy: 'gateio',
+          exchangeSell: 'mexc',
+          direction: 'spot-to-future'
+        };
+        
+        // Enviar via WebSocket
+        broadcastToClients(opportunityData);
+        
         // Salvar no banco se disponível
         if (prisma) {
           try {
@@ -66,8 +100,8 @@ async function monitorAndStore(): Promise<void> {
               data: {
                 symbol: symbol,
                 spread: spread,
-                spotPrice: 50000 + Math.random() * 1000,
-                futuresPrice: 50000 + Math.random() * 1000,
+                spotPrice: opportunityData.spotPrice,
+                futuresPrice: opportunityData.futuresPrice,
                 timestamp: new Date(),
                 exchangeBuy: 'gateio',
                 exchangeSell: 'mexc',
@@ -81,6 +115,14 @@ async function monitorAndStore(): Promise<void> {
         }
       }
     }
+    
+    // Enviar heartbeat para clientes
+    broadcastToClients({
+      type: 'heartbeat',
+      timestamp: new Date().toISOString(),
+      message: 'Worker ativo'
+    });
+    
   } catch (error) {
     console.error('[Worker] Erro no monitoramento:', error);
   } finally {
@@ -88,19 +130,47 @@ async function monitorAndStore(): Promise<void> {
   }
 }
 
-// Criar servidor HTTP simples
+// Criar servidor HTTP e WebSocket
 function createServer(): http.Server {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'Worker ativo',
       timestamp: new Date().toISOString(),
-      message: 'Servidor worker funcionando corretamente'
+      message: 'Servidor worker funcionando corretamente',
+      websocketClients: connectedClients.length
     }));
   });
 
+  // Criar servidor WebSocket
+  wss = new WebSocket.Server({ server });
+  
+  wss.on('connection', (ws: WebSocket) => {
+    console.log('[WebSocket] Novo cliente conectado');
+    connectedClients.push(ws);
+    
+    // Enviar mensagem de boas-vindas
+    ws.send(JSON.stringify({
+      type: 'connection',
+      message: 'Conectado ao servidor de arbitragem',
+      timestamp: new Date().toISOString()
+    }));
+    
+    ws.on('close', () => {
+      console.log('[WebSocket] Cliente desconectado');
+      const index = connectedClients.indexOf(ws);
+      if (index > -1) {
+        connectedClients.splice(index, 1);
+      }
+    });
+    
+    ws.on('error', (error) => {
+      console.error('[WebSocket] Erro no cliente:', error);
+    });
+  });
+
   server.listen(PORT, () => {
-    console.log(`[Worker] Servidor HTTP iniciado na porta ${PORT}`);
+    console.log(`[Worker] Servidor HTTP e WebSocket iniciado na porta ${PORT}`);
   });
 
   return server;
@@ -108,12 +178,12 @@ function createServer(): http.Server {
 
 // Função principal do worker
 async function startWorker(): Promise<void> {
-  console.log('[Worker] Iniciando worker com servidor HTTP...');
+  console.log('[Worker] Iniciando worker com servidor HTTP e WebSocket...');
   
   // Inicializa o banco
   await initializePrisma();
   
-  // Cria o servidor HTTP
+  // Cria o servidor HTTP e WebSocket
   const server = createServer();
   
   console.log('[Worker] Worker iniciado com sucesso!');
@@ -130,6 +200,9 @@ async function startWorker(): Promise<void> {
   }
   
   // Fecha o servidor
+  if (wss) {
+    wss.close();
+  }
   server.close();
 }
 
