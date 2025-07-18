@@ -1,5 +1,5 @@
-// Lista pré-definida de pares para Gate.io e MEXC
-// Esta lista substitui o carregamento dinâmico para melhorar performance
+// Pares predefinidos para arbitragem entre Gate.io e MEXC
+// Atualizado com lista específica de paridades monitoradas
 
 export const GATEIO_PAIRS = [
   '1DOLLAR_USDT', 'ACA_USDT', 'ACE_USDT', 'ACS_USDT', 'ACT_USDT', 'AEVO_USDT', 'AGLD_USDT', 'AIC_USDT', 'ALU_USDT', 'ANON_USDT',
@@ -27,35 +27,31 @@ export const MEXC_PAIRS = [
   'ZIG_USDT', 'BAR_USDT', 'GROK_USDT', 'MASA_USDT', 'XEM_USDT', 'ULTI_USDT', 'LUMIA_USDT', 'PONKE_USDT'
 ];
 
-// Pares em comum entre Gate.io e MEXC
+// Pares comuns entre as duas exchanges (para arbitragem)
 export const COMMON_PAIRS = GATEIO_PAIRS.filter(pair => MEXC_PAIRS.includes(pair));
 
-// Lista principal de pares para monitoramento (pares em comum)
-export const MONITORED_PAIRS = COMMON_PAIRS;
+// Pares específicos para futuros (se necessário)
+export const GATEIO_FUTURES_PAIRS = GATEIO_PAIRS.map(pair => pair.replace('_USDT', ':USDT'));
+export const MEXC_FUTURES_PAIRS = MEXC_PAIRS.map(pair => pair.replace('_USDT', ':USDT'));
 
-// Função para obter pares formatados para diferentes usos
-export function getFormattedPairs(format: 'underscore' | 'slash' = 'underscore'): string[] {
-  if (format === 'slash') {
-    return MONITORED_PAIRS.map(pair => pair.replace('_', '/'));
+// Configurações de monitoramento
+export const MONITORING_CONFIG = {
+  updateInterval: 5000, // 5 segundos
+  minSpreadThreshold: 0.1, // Spread mínimo de 0.1%
+  maxSpreadThreshold: 50, // Spread máximo de 50%
+  priceValidation: {
+    minPrice: 0.000001, // Preço mínimo
+    maxPrice: 1000000, // Preço máximo
   }
-  return MONITORED_PAIRS;
+};
+
+// Função para validar se um par está na lista de monitoramento
+export function isValidPair(symbol: string): boolean {
+  const normalizedSymbol = symbol.toUpperCase();
+  return COMMON_PAIRS.includes(normalizedSymbol);
 }
 
-// Função para obter pares por exchange
-export function getPairsByExchange(exchange: 'gateio' | 'mexc'): string[] {
-  if (exchange === 'gateio') {
-    return GATEIO_PAIRS;
-  }
-  return MEXC_PAIRS;
-}
-
-// Função para verificar se um par está disponível
-export function isPairAvailable(pair: string, exchange?: 'gateio' | 'mexc'): boolean {
-  if (exchange === 'gateio') {
-    return GATEIO_PAIRS.includes(pair);
-  }
-  if (exchange === 'mexc') {
-    return MEXC_PAIRS.includes(pair);
-  }
-  return COMMON_PAIRS.includes(pair);
+// Função para obter pares comuns para monitoramento
+export function getMonitoredPairs(): string[] {
+  return COMMON_PAIRS;
 } 

@@ -4,9 +4,10 @@
 import { PrismaClient } from '@prisma/client';
 import * as http from 'http';
 import * as WebSocket from 'ws';
+import { getMonitoredPairs, MONITORING_CONFIG } from '../lib/predefined-pairs';
 
 // Configurações
-const MONITORING_INTERVAL = 60 * 1000; // 1 minuto
+const MONITORING_INTERVAL = 10 * 1000; // 10 segundos para atualizações em tempo real
 const PORT = process.env.PORT || 10000;
 let isWorkerRunning = false;
 let isShuttingDown = false;
@@ -55,6 +56,130 @@ function broadcastToClients(data: any): void {
   });
 }
 
+// Função para buscar preços reais do Gate.io
+async function fetchGateioRealTimePrices(): Promise<any> {
+  try {
+    const response = await fetch('https://api.gateio.ws/api/v4/spot/tickers');
+    const data = await response.json();
+    
+    const prices: any = {};
+    const monitoredPairs = getMonitoredPairs();
+    
+    data.forEach((ticker: any) => {
+      if (monitoredPairs.includes(ticker.currency_pair)) {
+        prices[ticker.currency_pair] = {
+          ask: parseFloat(ticker.lowest_ask),
+          bid: parseFloat(ticker.highest_bid),
+          last: parseFloat(ticker.last)
+        };
+      }
+    });
+    
+    console.log(`[Worker] Gate.io: ${Object.keys(prices).length} pares encontrados`);
+    return prices;
+  } catch (error) {
+    console.error('[Worker] Erro ao buscar preços do Gate.io:', error);
+    return {};
+  }
+}
+
+// Função para buscar dados reais das exchanges e banco
+async function fetchRealTimeOpportunities(): Promise<any[]> {
+  const monitoredPairs = getMonitoredPairs();
+  const opportunities: any[] = [];
+
+  try {
+    console.log(`[Worker] Buscando oportunidades em tempo real para ${monitoredPairs.length} pares...`);
+
+    // Buscar preços reais do Gate.io
+    const gateioPrices = await fetchGateioRealTimePrices();
+    
+    // Buscar dados históricos válidos do banco para completar as oportunidades
+    if (prisma) {
+      const recentData = await prisma.spreadHistory.findMany({
+        where: {
+          symbol: { in: monitoredPairs },
+          spotPrice: { gt: 0 },
+          futuresPrice: { gt: 0 },
+          timestamp: {
+            gte: new Date(Date.now() - 30 * 60 * 1000) // Últimos 30 minutos
+          }
+        },
+        orderBy: { timestamp: 'desc' },
+        take: 50
+      });
+
+      console.log(`[Worker] Encontrados ${recentData.length} registros recentes no banco`);
+
+      // Processar dados do Gate.io com dados históricos
+      for (const [symbol, gateioPrice] of Object.entries(gateioPrices)) {
+        // Buscar dados históricos para este símbolo
+        const historicalData = recentData.filter(d => d.symbol === symbol);
+        
+        if (historicalData.length > 0) {
+          const latestData = historicalData[0];
+          const price = gateioPrice as { last: number; ask: number; bid: number };
+          
+          // Criar oportunidade usando preço real do Gate.io e dados históricos
+          const spread = ((price.last - latestData.spotPrice) / latestData.spotPrice) * 100;
+          
+          if (Math.abs(spread) >= MONITORING_CONFIG.minSpreadThreshold && 
+              Math.abs(spread) <= MONITORING_CONFIG.maxSpreadThreshold) {
+            
+                         opportunities.push({
+               symbol,
+               spread: Math.abs(spread),
+               spotPrice: price.last, // Preço real do Gate.io
+               futuresPrice: latestData.futuresPrice, // Dados históricos
+               exchangeBuy: spread > 0 ? 'gateio' : latestData.exchangeBuy,
+               exchangeSell: spread > 0 ? latestData.exchangeSell : 'gateio',
+               direction: 'spot_to_futures',
+               timestamp: new Date()
+             });
+          }
+        }
+      }
+
+      // Também incluir oportunidades baseadas apenas em dados históricos válidos
+      for (const data of recentData.slice(0, 20)) {
+        if (data.spread >= MONITORING_CONFIG.minSpreadThreshold && 
+            data.spread <= MONITORING_CONFIG.maxSpreadThreshold &&
+            data.spotPrice >= MONITORING_CONFIG.priceValidation.minPrice &&
+            data.spotPrice <= MONITORING_CONFIG.priceValidation.maxPrice &&
+            data.futuresPrice >= MONITORING_CONFIG.priceValidation.minPrice &&
+            data.futuresPrice <= MONITORING_CONFIG.priceValidation.maxPrice) {
+          
+          opportunities.push({
+            symbol: data.symbol,
+            spread: data.spread,
+            spotPrice: data.spotPrice,
+            futuresPrice: data.futuresPrice,
+            exchangeBuy: data.exchangeBuy,
+            exchangeSell: data.exchangeSell,
+            direction: data.direction,
+            timestamp: data.timestamp
+          });
+        }
+      }
+    }
+
+    // Remover duplicatas e ordenar por spread
+    const uniqueOpportunities = opportunities
+      .filter((opp, index, self) => 
+        index === self.findIndex(o => o.symbol === opp.symbol)
+      )
+      .sort((a, b) => b.spread - a.spread)
+      .slice(0, 20); // Limitar a 20 melhores oportunidades
+
+    console.log(`[Worker] Encontradas ${uniqueOpportunities.length} oportunidades válidas`);
+    return uniqueOpportunities;
+
+  } catch (error) {
+    console.error('[Worker] Erro ao buscar oportunidades em tempo real:', error);
+    return [];
+  }
+}
+
 // Função principal de monitoramento
 async function monitorAndStore(): Promise<void> {
   if (isWorkerRunning) {
@@ -63,104 +188,40 @@ async function monitorAndStore(): Promise<void> {
 
   try {
     isWorkerRunning = true;
-    console.log(`[Worker ${new Date().toLocaleTimeString()}] Monitoramento ativo`);
+    console.log(`[Worker ${new Date().toLocaleTimeString()}] Monitoramento ativo - Buscando dados em tempo real`);
     
-    // Buscar dados reais do banco de dados
-    if (prisma) {
-      try {
-        // Buscar spreads com preços válidos (últimas 24 horas)
-        const recentSpreads = await prisma.spreadHistory.findMany({
-          where: {
-            spotPrice: {
-              gt: 0
-            },
-            futuresPrice: {
-              gt: 0
-            }
-          },
-          orderBy: {
-            timestamp: 'desc'
-          },
-          take: 20
-        });
-
-        console.log(`[Worker] Encontrados ${recentSpreads.length} spreads no banco`);
-
-        // Enviar dados reais via WebSocket
-        let opportunitiesSent = 0;
-        for (const spread of recentSpreads) {
-          console.log(`[Worker] Verificando spread: ${spread.symbol}`, {
-            spread: spread.spread,
-            spotPrice: spread.spotPrice,
-            futuresPrice: spread.futuresPrice,
-            exchangeBuy: spread.exchangeBuy,
-            exchangeSell: spread.exchangeSell
-          });
-          
-          // Validar se os preços são válidos
-          if (spread.spread > 0.1 && 
-              spread.spotPrice && spread.spotPrice > 0 && 
-              spread.futuresPrice && spread.futuresPrice > 0) {
-            
-            const opportunityData = {
-              type: 'opportunity',
-              symbol: spread.symbol,
-              spread: spread.spread,
-              spotPrice: Number(spread.spotPrice),
-              futuresPrice: Number(spread.futuresPrice),
-              timestamp: spread.timestamp.toISOString(),
-              exchangeBuy: spread.exchangeBuy,
-              exchangeSell: spread.exchangeSell,
-              direction: spread.direction
-            };
-            
-            broadcastToClients(opportunityData);
-            opportunitiesSent++;
-            console.log(`[Worker] ✅ Oportunidade válida enviada: ${spread.symbol} - ${spread.spread.toFixed(4)}% - Spot: ${spread.spotPrice} - Futures: ${spread.futuresPrice}`);
-          } else {
-            console.log(`[Worker] ❌ Spread inválido ignorado: ${spread.symbol} - Spread: ${spread.spread} - Spot: ${spread.spotPrice} - Futures: ${spread.futuresPrice}`);
-          }
-        }
-        
-        console.log(`[Worker] Total de oportunidades enviadas: ${opportunitiesSent}`);
-        
-        // Se não há dados suficientes, buscar dados mais antigos
-        if (opportunitiesSent === 0) {
-          console.log(`[Worker] Nenhuma oportunidade recente, buscando dados mais antigos...`);
-          const olderSpreads = await prisma.spreadHistory.findMany({
-            orderBy: {
-              timestamp: 'desc'
-            },
-            take: 10
-          });
-          
-          for (const spread of olderSpreads) {
-            const opportunityData = {
-              type: 'opportunity',
-              symbol: spread.symbol,
-              spread: spread.spread,
-              spotPrice: spread.spotPrice,
-              futuresPrice: spread.futuresPrice,
-              timestamp: spread.timestamp.toISOString(),
-              exchangeBuy: spread.exchangeBuy,
-              exchangeSell: spread.exchangeSell,
-              direction: spread.direction
-            };
-            
-            broadcastToClients(opportunityData);
-            console.log(`[Worker] ✅ Oportunidade histórica enviada: ${spread.symbol} - ${spread.spread.toFixed(4)}%`);
-          }
-        }
-      } catch (dbError) {
-        console.error(`[Worker] Erro ao buscar dados do banco:`, dbError);
-      }
+    // Buscar oportunidades em tempo real
+    const realTimeOpportunities = await fetchRealTimeOpportunities();
+    
+    // Enviar oportunidades via WebSocket
+    let opportunitiesSent = 0;
+    for (const opportunity of realTimeOpportunities) {
+      const opportunityData = {
+        type: 'opportunity',
+        symbol: opportunity.symbol,
+        spread: opportunity.spread,
+        spotPrice: Number(opportunity.spotPrice),
+        futuresPrice: Number(opportunity.futuresPrice),
+        timestamp: opportunity.timestamp.toISOString(),
+        exchangeBuy: opportunity.exchangeBuy,
+        exchangeSell: opportunity.exchangeSell,
+        direction: opportunity.direction
+      };
+      
+      broadcastToClients(opportunityData);
+      opportunitiesSent++;
+      console.log(`[Worker] ✅ Oportunidade enviada: ${opportunity.symbol} - ${opportunity.spread.toFixed(4)}% - Spot: ${opportunity.spotPrice} - Futures: ${opportunity.futuresPrice}`);
     }
+    
+    console.log(`[Worker] Total de oportunidades enviadas: ${opportunitiesSent}`);
     
     // Enviar heartbeat para clientes
     broadcastToClients({
       type: 'heartbeat',
       timestamp: new Date().toISOString(),
-      message: 'Worker ativo - Dados reais'
+      message: `Worker ativo - ${opportunitiesSent} oportunidades encontradas`,
+      monitoredPairs: getMonitoredPairs().length,
+      updateInterval: MONITORING_INTERVAL / 1000
     });
     
   } catch (error) {
@@ -178,7 +239,9 @@ function createServer(): http.Server {
       status: 'Worker ativo',
       timestamp: new Date().toISOString(),
       message: 'Servidor worker funcionando corretamente',
-      websocketClients: connectedClients.length
+      websocketClients: connectedClients.length,
+      monitoredPairs: getMonitoredPairs().length,
+      updateInterval: MONITORING_INTERVAL / 1000 + ' segundos'
     }));
   });
 
@@ -192,8 +255,9 @@ function createServer(): http.Server {
     // Enviar mensagem de boas-vindas
     ws.send(JSON.stringify({
       type: 'connection',
-      message: 'Conectado ao servidor de arbitragem',
-      timestamp: new Date().toISOString()
+      message: 'Conectado ao servidor de arbitragem em tempo real',
+      timestamp: new Date().toISOString(),
+      monitoredPairs: getMonitoredPairs().length
     }));
     
     ws.on('close', () => {
@@ -209,61 +273,70 @@ function createServer(): http.Server {
     });
   });
 
-  server.listen(PORT, () => {
-    console.log(`[Worker] Servidor HTTP e WebSocket iniciado na porta ${PORT}`);
-  });
-
   return server;
 }
 
-// Função principal do worker
+// Função principal para iniciar o worker
 async function startWorker(): Promise<void> {
-  console.log('[Worker] Iniciando worker com servidor HTTP e WebSocket...');
+  console.log('🚀 Iniciando worker de arbitragem em tempo real...');
+  console.log(`📊 Pares monitorados: ${getMonitoredPairs().length}`);
+  console.log(`⏰ Intervalo de atualização: ${MONITORING_INTERVAL / 1000} segundos`);
   
-  // Inicializa o banco
-  await initializePrisma();
-  
-  // Cria o servidor HTTP e WebSocket
-  const server = createServer();
-  
-  console.log('[Worker] Worker iniciado com sucesso!');
-  
-  // Loop principal
-  while (!isShuttingDown) {
-    try {
+  try {
+    // Inicializar Prisma
+    await initializePrisma();
+    
+    // Criar servidor HTTP e WebSocket
+    const server = createServer();
+    
+    // Iniciar servidor
+    server.listen(PORT, () => {
+      console.log(`✅ Servidor worker rodando na porta ${PORT}`);
+      console.log(`🌐 WebSocket disponível em ws://localhost:${PORT}`);
+    });
+    
+    // Iniciar monitoramento imediatamente
+    await monitorAndStore();
+    
+    // Configurar intervalo de monitoramento
+    const monitoringInterval = setInterval(async () => {
+      if (isShuttingDown) {
+        clearInterval(monitoringInterval);
+        return;
+      }
       await monitorAndStore();
-      await new Promise(resolve => setTimeout(resolve, MONITORING_INTERVAL));
-    } catch (error) {
-      console.error('[Worker] Erro no loop principal:', error);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
+    }, MONITORING_INTERVAL);
+    
+    console.log('✅ Worker iniciado com sucesso!');
+    
+  } catch (error) {
+    console.error('❌ Erro ao iniciar worker:', error);
+    process.exit(1);
   }
-  
-  // Fecha o servidor
-  if (wss) {
-    wss.close();
-  }
-  server.close();
 }
 
-// Tratamento de encerramento
-process.on('SIGTERM', async () => {
-  console.log('[Worker] Recebido SIGTERM, encerrando...');
-  isShuttingDown = true;
-  if (prisma) await prisma.$disconnect();
-  process.exit(0);
-});
-
+// Tratamento de sinais para encerramento limpo
 process.on('SIGINT', async () => {
-  console.log('[Worker] Recebido SIGINT, encerrando...');
+  console.log('\n🛑 Encerrando worker...');
   isShuttingDown = true;
-  if (prisma) await prisma.$disconnect();
+  
+  if (prisma) {
+    await prisma.$disconnect();
+  }
+  
   process.exit(0);
 });
 
-// Inicia o worker
-console.log('[Worker] Iniciando...');
-startWorker().catch(error => {
-  console.error('[Worker] Erro fatal:', error);
-  process.exit(1);
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Encerrando worker...');
+  isShuttingDown = true;
+  
+  if (prisma) {
+    await prisma.$disconnect();
+  }
+  
+  process.exit(0);
 });
+
+// Iniciar worker
+startWorker().catch(console.error);
