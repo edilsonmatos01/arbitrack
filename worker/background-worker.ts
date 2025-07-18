@@ -60,7 +60,7 @@ function broadcastToClients(data: any): void {
 async function fetchGateioRealTimePrices(): Promise<any> {
   try {
     const response = await fetch('https://api.gateio.ws/api/v4/spot/tickers');
-    const data = await response.json();
+    const data = await response.json() as any[];
     
     const prices: any = {};
     const monitoredPairs = getMonitoredPairs();
