@@ -127,5 +127,4 @@ console.log('[Worker] Iniciando...');
 startWorker().catch(error => {
   console.error('[Worker] Erro fatal:', error);
   process.exit(1);
-}); 
-}); 
+});
