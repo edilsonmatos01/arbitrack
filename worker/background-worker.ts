@@ -68,22 +68,25 @@ async function monitorAndStore(): Promise<void> {
     // Buscar dados reais do banco de dados
     if (prisma) {
       try {
-        // Buscar spreads recentes do banco
+        // Buscar spreads recentes do banco (últimas 2 horas)
         const recentSpreads = await prisma.spreadHistory.findMany({
           where: {
             timestamp: {
-              gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Últimas 24h
+              gte: new Date(Date.now() - 2 * 60 * 60 * 1000) // Últimas 2h
             }
           },
           orderBy: {
             timestamp: 'desc'
           },
-          take: 10
+          take: 20
         });
 
+        console.log(`[Worker] Encontrados ${recentSpreads.length} spreads no banco`);
+
         // Enviar dados reais via WebSocket
+        let opportunitiesSent = 0;
         for (const spread of recentSpreads) {
-          if (spread.spread > 0.5) { // Só enviar spreads significativos
+          if (spread.spread > 0.1) { // Reduzido para 0.1% para capturar mais oportunidades
             const opportunityData = {
               type: 'opportunity',
               symbol: spread.symbol,
@@ -97,7 +100,38 @@ async function monitorAndStore(): Promise<void> {
             };
             
             broadcastToClients(opportunityData);
-            console.log(`[Worker] Dados reais enviados: ${spread.symbol} - ${spread.spread.toFixed(4)}%`);
+            opportunitiesSent++;
+            console.log(`[Worker] ✅ Oportunidade enviada: ${spread.symbol} - ${spread.spread.toFixed(4)}%`);
+          }
+        }
+        
+        console.log(`[Worker] Total de oportunidades enviadas: ${opportunitiesSent}`);
+        
+        // Se não há dados suficientes, buscar dados mais antigos
+        if (opportunitiesSent === 0) {
+          console.log(`[Worker] Nenhuma oportunidade recente, buscando dados mais antigos...`);
+          const olderSpreads = await prisma.spreadHistory.findMany({
+            orderBy: {
+              timestamp: 'desc'
+            },
+            take: 10
+          });
+          
+          for (const spread of olderSpreads) {
+            const opportunityData = {
+              type: 'opportunity',
+              symbol: spread.symbol,
+              spread: spread.spread,
+              spotPrice: spread.spotPrice,
+              futuresPrice: spread.futuresPrice,
+              timestamp: spread.timestamp.toISOString(),
+              exchangeBuy: spread.exchangeBuy,
+              exchangeSell: spread.exchangeSell,
+              direction: spread.direction
+            };
+            
+            broadcastToClients(opportunityData);
+            console.log(`[Worker] ✅ Oportunidade histórica enviada: ${spread.symbol} - ${spread.spread.toFixed(4)}%`);
           }
         }
       } catch (dbError) {
