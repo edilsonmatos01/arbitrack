@@ -195,9 +195,36 @@ export function useArbitrageWebSocket(enabled = true) {
         if (message.type === 'arbitrage') {
           updateOpportunities(message);
         }
+        else if (message.type === 'opportunity') {
+          // Converter mensagem do novo formato para o formato esperado
+          const arbitrageMessage: ArbitrageOpportunity = {
+            type: 'arbitrage',
+            baseSymbol: message.symbol,
+            profitPercentage: message.spread,
+            buyAt: {
+              exchange: message.exchangeBuy,
+              price: message.spotPrice,
+              marketType: 'spot' as const
+            },
+            sellAt: {
+              exchange: message.exchangeSell,
+              price: message.futuresPrice,
+              marketType: 'futures' as const
+            },
+            arbitrageType: message.direction,
+            timestamp: new Date(message.timestamp).getTime()
+          };
+          updateOpportunities(arbitrageMessage);
+        }
         else if (message.type === 'price-update') {
           const { symbol, marketType, bestAsk, bestBid } = message;
           updateLivePrices(symbol, marketType, bestAsk, bestBid);
+        }
+        else if (message.type === 'connection') {
+          console.log('[WS Hook] ✅ Conectado ao servidor:', message.message);
+        }
+        else if (message.type === 'heartbeat') {
+          console.log('[WS Hook] 💓 Heartbeat recebido:', message.message);
         }
         else {
           console.log('[DEBUG] ⚠️ Tipo de mensagem não reconhecido:', message.type);
