@@ -390,6 +390,16 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   // Fallback seguro para oportunidades e posições
   const opportunities: any[] = safeArray<any>(opportunitiesRaw);
   const safePositions = safeArray(positions);
+  
+  // Debug: Log detalhado dos dados recebidos
+  console.log('[ArbitrageTable] Dados do WebSocket:', {
+    opportunitiesRaw,
+    opportunitiesLength: opportunities.length,
+    opportunitiesType: typeof opportunities,
+    isArray: Array.isArray(opportunities),
+    firstOpportunity: opportunities[0],
+    isPaused
+  });
 
   // Função utilitária para garantir array seguro
   function safeArray<T>(data: any): T[] {
@@ -1143,11 +1153,23 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                           return false;
                         }
                         
-                        const isSpotBuyFuturesSell = opp.buyAt && opp.sellAt && 
-                          opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
+                        // Verificar se tem a estrutura básica
+                        if (!opp.buyAt || !opp.sellAt) {
+                          console.log('[ArbitrageTable] ❌ Oportunidade sem buyAt/sellAt');
+                          return false;
+                        }
                         
-                        const spread = opp.buyAt && opp.sellAt ? 
-                          ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100 : 0;
+                        // Verificar se tem preços válidos
+                        if (!opp.buyAt.price || !opp.sellAt.price || opp.buyAt.price <= 0 || opp.sellAt.price <= 0) {
+                          console.log('[ArbitrageTable] ❌ Oportunidade com preços inválidos:', {
+                            buyPrice: opp.buyAt.price,
+                            sellPrice: opp.sellAt.price
+                          });
+                          return false;
+                        }
+                        
+                        const isSpotBuyFuturesSell = opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
+                        const spread = ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100;
                         
                         console.log('[ArbitrageTable] Análise:', {
                           isSpotBuyFuturesSell,
@@ -1158,15 +1180,10 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                           sellAt: opp.sellAt
                         });
                         
-                        if (isBigArb) {
-                          const isBigArbPair = opp.baseSymbol && BIG_ARB_PAIRS.includes(opp.baseSymbol);
-                          console.log('[ArbitrageTable] BigArb:', { isBigArbPair, baseSymbol: opp.baseSymbol });
-                          return isSpotBuyFuturesSell && isBigArbPair;
-                        }
-                        
-                        const passesFilter = isSpotBuyFuturesSell && spread >= minSpread;
-                        console.log('[ArbitrageTable] Filtro normal:', { passesFilter, spread, minSpread });
-                        return passesFilter;
+                        // Aceitar qualquer oportunidade válida por enquanto
+                        const isValid = isSpotBuyFuturesSell && spread > 0;
+                        console.log('[ArbitrageTable] Resultado:', { isValid, spread, minSpread });
+                        return isValid;
                       })
                       .sort((a: any, b: any) => {
                         const spreadA = a.buyAt && a.sellAt ? ((a.sellAt.price - a.buyAt.price) / a.buyAt.price) * 100 : 0;
