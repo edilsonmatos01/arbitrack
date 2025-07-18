@@ -1,10 +1,12 @@
-// WORKER PURO - SEM SERVIDOR HTTP, SEM WEBSOCKET, SEM PORTAS
-// Este arquivo é um BACKGROUND WORKER para o Render
+// WORKER COM SERVIDOR HTTP SIMPLES PARA RENDER
+// Este arquivo é um BACKGROUND WORKER com servidor HTTP para o Render
 
 import { PrismaClient } from '@prisma/client';
+import * as http from 'http';
 
 // Configurações
 const MONITORING_INTERVAL = 60 * 1000; // 1 minuto
+const PORT = process.env.PORT || 10000;
 let isWorkerRunning = false;
 let isShuttingDown = false;
 let prisma: PrismaClient | null = null;
@@ -86,12 +88,33 @@ async function monitorAndStore(): Promise<void> {
   }
 }
 
+// Criar servidor HTTP simples
+function createServer(): http.Server {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'Worker ativo',
+      timestamp: new Date().toISOString(),
+      message: 'Servidor worker funcionando corretamente'
+    }));
+  });
+
+  server.listen(PORT, () => {
+    console.log(`[Worker] Servidor HTTP iniciado na porta ${PORT}`);
+  });
+
+  return server;
+}
+
 // Função principal do worker
 async function startWorker(): Promise<void> {
-  console.log('[Worker] Iniciando worker em segundo plano...');
+  console.log('[Worker] Iniciando worker com servidor HTTP...');
   
   // Inicializa o banco
   await initializePrisma();
+  
+  // Cria o servidor HTTP
+  const server = createServer();
   
   console.log('[Worker] Worker iniciado com sucesso!');
   
@@ -105,6 +128,9 @@ async function startWorker(): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
+  
+  // Fecha o servidor
+  server.close();
 }
 
 // Tratamento de encerramento
