@@ -88,7 +88,7 @@ services:
         name: arbitragem-db
         property: connectionString
     - key: NEXT_PUBLIC_WEBSOCKET_URL
-      value: wss://arbitrage-worker.onrender.com
+      value: wss://robo-de-arbitragem-tracker.onrender.com
     - key: PORT
       value: 10000
     - key: HOSTNAME
@@ -134,19 +134,17 @@ services:
     - key: TZ
       value: America/Sao_Paulo
 
-- type: web
+- type: worker
   name: robo-de-arbitragem-tracker
   env: node
   plan: free
-  buildCommand: npm install && npm run build
-  startCommand: npm start
+  buildCommand: npm install && npm run build:worker
+  startCommand: npm run start:worker
   envVars:
     - key: DATABASE_URL
       fromDatabase:
         name: arbitragem-db
         property: connectionString
-    - key: NEXT_PUBLIC_WEBSOCKET_URL
-      value: wss://arbitrage-worker.onrender.com
     - key: PORT
       value: 10000
     - key: HOSTNAME
