@@ -86,13 +86,25 @@ async function monitorAndStore(): Promise<void> {
         // Enviar dados reais via WebSocket
         let opportunitiesSent = 0;
         for (const spread of recentSpreads) {
-          if (spread.spread > 0.1) { // Reduzido para 0.1% para capturar mais oportunidades
+          console.log(`[Worker] Verificando spread: ${spread.symbol}`, {
+            spread: spread.spread,
+            spotPrice: spread.spotPrice,
+            futuresPrice: spread.futuresPrice,
+            exchangeBuy: spread.exchangeBuy,
+            exchangeSell: spread.exchangeSell
+          });
+          
+          // Validar se os preços são válidos
+          if (spread.spread > 0.1 && 
+              spread.spotPrice && spread.spotPrice > 0 && 
+              spread.futuresPrice && spread.futuresPrice > 0) {
+            
             const opportunityData = {
               type: 'opportunity',
               symbol: spread.symbol,
               spread: spread.spread,
-              spotPrice: spread.spotPrice,
-              futuresPrice: spread.futuresPrice,
+              spotPrice: Number(spread.spotPrice),
+              futuresPrice: Number(spread.futuresPrice),
               timestamp: spread.timestamp.toISOString(),
               exchangeBuy: spread.exchangeBuy,
               exchangeSell: spread.exchangeSell,
@@ -101,7 +113,9 @@ async function monitorAndStore(): Promise<void> {
             
             broadcastToClients(opportunityData);
             opportunitiesSent++;
-            console.log(`[Worker] ✅ Oportunidade enviada: ${spread.symbol} - ${spread.spread.toFixed(4)}%`);
+            console.log(`[Worker] ✅ Oportunidade válida enviada: ${spread.symbol} - ${spread.spread.toFixed(4)}% - Spot: ${spread.spotPrice} - Futures: ${spread.futuresPrice}`);
+          } else {
+            console.log(`[Worker] ❌ Spread inválido ignorado: ${spread.symbol} - Spread: ${spread.spread} - Spot: ${spread.spotPrice} - Futures: ${spread.futuresPrice}`);
           }
         }
         

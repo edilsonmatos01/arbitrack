@@ -1135,8 +1135,13 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                     
                     const filteredOpps = (safeOpps as any[])
                       .filter((opp: any) => {
+                        console.log('[ArbitrageTable] Filtrando oportunidade:', opp);
+                        
                         // Validação básica da estrutura da oportunidade
-                        if (!opp || typeof opp !== 'object') return false;
+                        if (!opp || typeof opp !== 'object') {
+                          console.log('[ArbitrageTable] ❌ Oportunidade inválida (não é objeto)');
+                          return false;
+                        }
                         
                         const isSpotBuyFuturesSell = opp.buyAt && opp.sellAt && 
                           opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures';
@@ -1144,11 +1149,24 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                         const spread = opp.buyAt && opp.sellAt ? 
                           ((opp.sellAt.price - opp.buyAt.price) / opp.buyAt.price) * 100 : 0;
                         
+                        console.log('[ArbitrageTable] Análise:', {
+                          isSpotBuyFuturesSell,
+                          spread,
+                          minSpread,
+                          baseSymbol: opp.baseSymbol,
+                          buyAt: opp.buyAt,
+                          sellAt: opp.sellAt
+                        });
+                        
                         if (isBigArb) {
-                          return isSpotBuyFuturesSell && opp.baseSymbol && BIG_ARB_PAIRS.includes(opp.baseSymbol);
+                          const isBigArbPair = opp.baseSymbol && BIG_ARB_PAIRS.includes(opp.baseSymbol);
+                          console.log('[ArbitrageTable] BigArb:', { isBigArbPair, baseSymbol: opp.baseSymbol });
+                          return isSpotBuyFuturesSell && isBigArbPair;
                         }
                         
-                        return isSpotBuyFuturesSell && spread >= minSpread;
+                        const passesFilter = isSpotBuyFuturesSell && spread >= minSpread;
+                        console.log('[ArbitrageTable] Filtro normal:', { passesFilter, spread, minSpread });
+                        return passesFilter;
                       })
                       .sort((a: any, b: any) => {
                         const spreadA = a.buyAt && a.sellAt ? ((a.sellAt.price - a.buyAt.price) / a.buyAt.price) * 100 : 0;
