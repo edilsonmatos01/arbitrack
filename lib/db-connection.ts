@@ -3,12 +3,12 @@ import { Pool } from 'pg';
 // URL correta do banco que contém os dados
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://arbitragem_banco_bdx8_user:eSa4DBin3b19GI5DHmL9x11Xd4I329vT@dpg-d1i63eqdbo4c7387d210-a/arbitragem_banco_bdx8';
 
-// Configuração específica para Render
+// Configuração específica para Render com SSL corrigido
 const pool = new Pool({
-  connectionString: DATABASE_URL + '?sslmode=require&connect_timeout=60&application_name=arbitragem',
-  ssl: {
+  connectionString: DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? {
     rejectUnauthorized: false
-  },
+  } : false,
   connectionTimeoutMillis: 60000,
   query_timeout: 60000,
   statement_timeout: 60000,
