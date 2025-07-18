@@ -122,8 +122,11 @@ function initializeStandaloneServer() {
     });
 }
 
+// Para workers, não inicializar servidor HTTP
 if (require.main === module) {
-    initializeStandaloneServer();
+    console.log('[WORKER] Iniciando como worker - sem servidor HTTP');
+    // Iniciar apenas os feeds de dados
+    startFeeds();
 }
 
 function broadcast(data: any) {
