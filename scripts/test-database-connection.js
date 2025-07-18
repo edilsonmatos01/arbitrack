@@ -3,7 +3,7 @@ require('dotenv').config();
 const { Pool } = require('pg');
 
 // URL do banco no Render
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://arbitragem_banco_bdx8_user:eSa4DBin3bl9GI5DHmL9x1lXd4I329vT@dpg-d1i63eqdbo4c7387d2l0-a.oregon-postgres.render.com/arbitragem_banco_bdx8';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://arbitragem_banco_bdx8_user:eSa4DBin3b19GI5DHmL9x11Xd4I329vT@dpg-d1i63eqdbo4c7387d210-a/arbitragem_banco_bdx8';
 
 const pool = new Pool({
   connectionString: DATABASE_URL + '?sslmode=require&connect_timeout=60&application_name=arbitragem',
