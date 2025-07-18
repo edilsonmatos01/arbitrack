@@ -73,8 +73,6 @@ $apis = @(
     @{ Name = "Bybit Balance"; Endpoint = "/api/bybit/wallet-balance" },
     @{ Name = "GateIO Balance"; Endpoint = "/api/gateio/wallet-balance" },
     @{ Name = "MEXC Balance"; Endpoint = "/api/mexc/wallet-balance" },
-    @{ Name = "Trading Balance"; Endpoint = "/api/trading/balance" },
-    @{ Name = "Trading Balance Futures"; Endpoint = "/api/trading/balance-futures" },
     @{ Name = "Operation History"; Endpoint = "/api/operation-history" },
     @{ Name = "Positions"; Endpoint = "/api/positions" },
     @{ Name = "Max Spreads"; Endpoint = "/api/spreads/max" },
