@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import dbConnection from '@/lib/db-connection';
 import { encrypt, decrypt } from '@/lib/crypto';
 
 export const dynamic = 'force-dynamic';
@@ -9,22 +9,16 @@ export async function GET(req: NextRequest) {
   try {
     let configs: any[] = [];
     
-    if (prisma) {
-      try {
-        // Tentar buscar do banco de dados
-        configs = await prisma.apiConfiguration.findMany({
-          select: {
-            id: true,
-            exchange: true,
-            isActive: true,
-            createdAt: true,
-            updatedAt: true,
-            // Não retornamos as chaves por segurança
-          }
-        });
-      } catch (dbError: any) {
-        console.warn('Banco de dados não disponível, usando variáveis de ambiente:', dbError.message);
-      }
+    try {
+      // Tentar buscar do banco de dados usando conexão direta
+      const result = await dbConnection.executeQuery(`
+        SELECT id, exchange, "isActive", "createdAt", "updatedAt"
+        FROM "ApiConfiguration"
+        ORDER BY "createdAt" DESC
+      `);
+      configs = result;
+    } catch (dbError: any) {
+      console.warn('Banco de dados não disponível, usando variáveis de ambiente:', dbError.message);
     }
 
     // Se não há configurações no banco, verificar variáveis de ambiente
@@ -61,10 +55,6 @@ export async function GET(req: NextRequest) {
 // POST - Criar ou atualizar configuração
 export async function POST(req: NextRequest) {
   try {
-    if (!prisma) {
-      return NextResponse.json({ error: 'Banco de dados não disponível' }, { status: 500 });
-    }
-
     let body;
     try {
       body = await req.json();
@@ -93,47 +83,29 @@ export async function POST(req: NextRequest) {
     const encryptedPassphrase = passphrase ? encrypt(passphrase) : null;
 
     // Verificar se já existe configuração para esta exchange
-    const existingConfig = await prisma.apiConfiguration.findUnique({
-      where: { exchange }
-    });
+    const existingConfig = await dbConnection.executeQuery(
+      'SELECT * FROM "ApiConfiguration" WHERE exchange = $1',
+      [exchange]
+    );
 
     let config;
-    if (existingConfig) {
+    if (existingConfig.length > 0) {
       // Atualizar configuração existente
-      config = await prisma.apiConfiguration.update({
-        where: { exchange },
-        data: {
-          apiKey: encryptedApiKey,
-          apiSecret: encryptedApiSecret,
-          passphrase: encryptedPassphrase,
-          isActive
-        },
-        select: {
-          id: true,
-          exchange: true,
-          isActive: true,
-          createdAt: true,
-          updatedAt: true
-        }
-      });
+      const result = await dbConnection.executeQuery(`
+        UPDATE "ApiConfiguration" 
+        SET "apiKey" = $1, "apiSecret" = $2, "passphrase" = $3, "isActive" = $4, "updatedAt" = NOW()
+        WHERE exchange = $5
+        RETURNING id, exchange, "isActive", "createdAt", "updatedAt"
+      `, [encryptedApiKey, encryptedApiSecret, encryptedPassphrase, isActive, exchange]);
+      config = result[0];
     } else {
       // Criar nova configuração
-      config = await prisma.apiConfiguration.create({
-        data: {
-          exchange,
-          apiKey: encryptedApiKey,
-          apiSecret: encryptedApiSecret,
-          passphrase: encryptedPassphrase,
-          isActive
-        },
-        select: {
-          id: true,
-          exchange: true,
-          isActive: true,
-          createdAt: true,
-          updatedAt: true
-        }
-      });
+      const result = await dbConnection.executeQuery(`
+        INSERT INTO "ApiConfiguration" (exchange, "apiKey", "apiSecret", "passphrase", "isActive", "createdAt", "updatedAt")
+        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        RETURNING id, exchange, "isActive", "createdAt", "updatedAt"
+      `, [exchange, encryptedApiKey, encryptedApiSecret, encryptedPassphrase, isActive]);
+      config = result[0];
     }
 
     return NextResponse.json(config);
@@ -146,10 +118,6 @@ export async function POST(req: NextRequest) {
 // DELETE - Remover configuração
 export async function DELETE(req: NextRequest) {
   try {
-    if (!prisma) {
-      return NextResponse.json({ error: 'Banco de dados não disponível' }, { status: 500 });
-    }
-
     const { searchParams } = new URL(req.url);
     const exchange = searchParams.get('exchange');
 
@@ -157,9 +125,10 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Exchange é obrigatório' }, { status: 400 });
     }
 
-    await prisma.apiConfiguration.delete({
-      where: { exchange }
-    });
+    await dbConnection.executeQuery(
+      'DELETE FROM "ApiConfiguration" WHERE exchange = $1',
+      [exchange]
+    );
 
     return NextResponse.json({ message: 'Configuração removida com sucesso' });
   } catch (error) {
@@ -175,21 +144,16 @@ export async function getApiCredentials(exchange: string): Promise<{
   passphrase?: string;
 } | null> {
   try {
-    if (!prisma) {
+    const configs = await dbConnection.executeQuery(
+      'SELECT * FROM "ApiConfiguration" WHERE exchange = $1 AND "isActive" = true',
+      [exchange]
+    );
+
+    if (configs.length === 0) {
       return null;
     }
 
-    const config = await prisma.apiConfiguration.findUnique({
-      where: { 
-        exchange,
-        isActive: true
-      }
-    });
-
-    if (!config) {
-      return null;
-    }
-
+    const config = configs[0] as any;
     return {
       apiKey: decrypt(config.apiKey),
       apiSecret: decrypt(config.apiSecret),
