@@ -1,5 +1,3 @@
-const path = require('path');
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -9,15 +7,9 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  output: 'standalone',
   experimental: {
     serverComponentsExternalPackages: ['ws', 'ccxt']
   },
-  // Configurações para evitar timeouts durante o build
-  staticPageGenerationTimeout: 120,
-  // Configurações para produção
-  poweredByHeader: false,
-  compress: true,
   images: {
     remotePatterns: [
       {
