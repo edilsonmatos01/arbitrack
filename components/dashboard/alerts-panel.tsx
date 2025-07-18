@@ -132,32 +132,37 @@ export default function AlertsPanel() {
     const initialAlerts = generateSystemAlerts();
     setAlerts(initialAlerts);
 
-    // Simular novos alertas periodicamente
-    const interval = setInterval(() => {
-      const randomAlerts = [
-        {
-          id: `alert-${Date.now()}`,
-          type: 'success' as const,
-          title: 'Operação Concluída',
-          message: 'Arbitragem ETH/USDT finalizada com lucro de $12.50',
-          timestamp: new Date(),
-          dismissible: true
-        },
-        {
-          id: `alert-${Date.now()}-2`,
-          type: 'warning' as const,
-          title: 'Spread Reduzido',
-          message: 'Spread BNB/USDT caiu para 0.3% - Monitorando',
-          timestamp: new Date(),
-          dismissible: true
+    // Buscar alertas reais do banco de dados
+    const fetchRealAlerts = async () => {
+      try {
+        const response = await fetch('/api/operation-history?limit=5');
+        if (response.ok) {
+          const operations = await response.json();
+          
+          // Converter operações em alertas
+          const realAlerts = operations.map((op: any) => ({
+            id: `op-${op.id}`,
+            type: op.profit > 0 ? 'success' as const : 'warning' as const,
+            title: op.profit > 0 ? 'Operação Lucrativa' : 'Operação Realizada',
+            message: `Arbitragem ${op.symbol} ${op.profit > 0 ? 'lucro' : 'resultado'}: $${Math.abs(op.profit).toFixed(2)}`,
+            timestamp: new Date(op.timestamp),
+            dismissible: true
+          }));
+          
+          // Adicionar alertas reais
+          if (realAlerts.length > 0) {
+            setAlerts(prev => [...realAlerts.slice(0, 3), ...prev.slice(0, 7)]); // Máximo 10 alertas
+          }
         }
-      ];
-
-      if (Math.random() > 0.7) { // 30% chance de novo alerta
-        const newAlert = randomAlerts[Math.floor(Math.random() * randomAlerts.length)];
-        setAlerts(prev => [newAlert, ...prev.slice(0, 9)]); // Manter máximo 10 alertas
+      } catch (error) {
+        console.error('Erro ao buscar alertas reais:', error);
       }
-    }, 30000); // A cada 30 segundos
+    };
+
+    fetchRealAlerts();
+    
+    // Atualizar a cada 5 minutos
+    const interval = setInterval(fetchRealAlerts, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, []);

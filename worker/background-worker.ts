@@ -65,54 +65,43 @@ async function monitorAndStore(): Promise<void> {
     isWorkerRunning = true;
     console.log(`[Worker ${new Date().toLocaleTimeString()}] Monitoramento ativo`);
     
-    // Simular detecção de oportunidades
-    const symbols = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT'];
-    for (const symbol of symbols) {
-      if (isShuttingDown) break;
-      
-      // Simular spread aleatório
-      const spread = Math.random() * 5;
-      if (spread > 2) {
-        console.log(`🎯 OPORTUNIDADE DETECTADA - ${new Date().toLocaleTimeString()}`);
-        console.log(`Par: ${symbol}`);
-        console.log(`Spread: ${spread.toFixed(4)}%`);
-        
-        // Preparar dados para WebSocket
-        const opportunityData = {
-          type: 'opportunity',
-          symbol: symbol,
-          spread: spread,
-          spotPrice: 50000 + Math.random() * 1000,
-          futuresPrice: 50000 + Math.random() * 1000,
-          timestamp: new Date().toISOString(),
-          exchangeBuy: 'gateio',
-          exchangeSell: 'mexc',
-          direction: 'spot-to-future'
-        };
-        
-        // Enviar via WebSocket
-        broadcastToClients(opportunityData);
-        
-        // Salvar no banco se disponível
-        if (prisma) {
-          try {
-            await prisma.spreadHistory.create({
-              data: {
-                symbol: symbol,
-                spread: spread,
-                spotPrice: opportunityData.spotPrice,
-                futuresPrice: opportunityData.futuresPrice,
-                timestamp: new Date(),
-                exchangeBuy: 'gateio',
-                exchangeSell: 'mexc',
-                direction: 'spot-to-future'
-              }
-            });
-            console.log(`[Worker] Dados salvos para ${symbol}`);
-          } catch (dbError) {
-            console.error(`[Worker] Erro ao salvar:`, dbError);
+    // Buscar dados reais do banco de dados
+    if (prisma) {
+      try {
+        // Buscar spreads recentes do banco
+        const recentSpreads = await prisma.spreadHistory.findMany({
+          where: {
+            timestamp: {
+              gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Últimas 24h
+            }
+          },
+          orderBy: {
+            timestamp: 'desc'
+          },
+          take: 10
+        });
+
+        // Enviar dados reais via WebSocket
+        for (const spread of recentSpreads) {
+          if (spread.spread > 0.5) { // Só enviar spreads significativos
+            const opportunityData = {
+              type: 'opportunity',
+              symbol: spread.symbol,
+              spread: spread.spread,
+              spotPrice: spread.spotPrice,
+              futuresPrice: spread.futuresPrice,
+              timestamp: spread.timestamp.toISOString(),
+              exchangeBuy: spread.exchangeBuy,
+              exchangeSell: spread.exchangeSell,
+              direction: spread.direction
+            };
+            
+            broadcastToClients(opportunityData);
+            console.log(`[Worker] Dados reais enviados: ${spread.symbol} - ${spread.spread.toFixed(4)}%`);
           }
         }
+      } catch (dbError) {
+        console.error(`[Worker] Erro ao buscar dados do banco:`, dbError);
       }
     }
     
@@ -120,7 +109,7 @@ async function monitorAndStore(): Promise<void> {
     broadcastToClients({
       type: 'heartbeat',
       timestamp: new Date().toISOString(),
-      message: 'Worker ativo'
+      message: 'Worker ativo - Dados reais'
     });
     
   } catch (error) {

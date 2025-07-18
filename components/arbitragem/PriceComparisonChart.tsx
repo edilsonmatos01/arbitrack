@@ -145,8 +145,8 @@ export default function PriceComparisonChart({ symbol }: PriceComparisonChartPro
           console.log(`[PriceChart] Último ponto:`, result[result.length - 1]);
         } else {
           console.log(`[PriceChart] ⚠️ Nenhum dado histórico encontrado para ${symbol}`);
-          // Gera dados de exemplo se não houver dados históricos
-          generateSampleData();
+          // Busca dados reais se não houver dados históricos
+          fetchRealData();
         }
       } else {
         throw new Error('Formato de resposta inválido');
@@ -158,38 +158,41 @@ export default function PriceComparisonChart({ symbol }: PriceComparisonChartPro
       setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
       setLoading(false);
       
-      // Em caso de erro, tenta gerar dados de exemplo
-      generateSampleData();
+      // Em caso de erro, tenta buscar dados reais
+      fetchRealData();
     }
   }, [symbol]);
 
-  // Gera dados de exemplo para demonstração quando não há dados históricos
-  const generateSampleData = useCallback(() => {
-    console.log(`[PriceChart] Gerando dados de exemplo para ${symbol}...`);
+  // Busca dados reais do banco quando não há dados históricos
+  const fetchRealData = useCallback(async () => {
+    console.log(`[PriceChart] Buscando dados reais para ${symbol}...`);
     
-    const now = new Date();
-    const sampleData: PriceData[] = [];
-    
-    // Gera 48 pontos (24 horas com intervalos de 30 minutos)
-    for (let i = 47; i >= 0; i--) {
-      const timestamp = new Date(now.getTime() - (i * 30 * 60 * 1000));
-      const roundedTime = roundToNearestInterval(timestamp);
-      const formattedTime = formatTimestamp(roundedTime);
-      
-      // Preços base simulados (próximos aos reais)
-      const basePrice = 0.0009 + (Math.random() * 0.0001); // Entre 0.0009 e 0.001
-      const gateioPrice = basePrice + (Math.random() * 0.00001 - 0.000005); // Pequena variação
-      const mexcPrice = basePrice + (Math.random() * 0.00001 - 0.000005); // Pequena variação
-      
-      sampleData.push({
-        timestamp: formattedTime,
-        gateio_price: Number(gateioPrice.toFixed(8)),
-        mexc_price: Number(mexcPrice.toFixed(8))
-      });
+    try {
+      const response = await fetch(`/api/spread-history/24h/${symbol}?limit=48`);
+      if (response.ok) {
+        const realData = await response.json();
+        
+        if (realData && realData.length > 0) {
+          const formattedData: PriceData[] = realData.map((item: any) => ({
+            timestamp: formatTimestamp(new Date(item.timestamp)),
+            gateio_price: item.spotPrice,
+            mexc_price: item.futuresPrice
+          }));
+          
+          setData(formattedData);
+          console.log(`[PriceChart] ✅ Dados reais carregados: ${formattedData.length} pontos`);
+        } else {
+          console.log(`[PriceChart] ⚠️ Nenhum dado real encontrado para ${symbol}`);
+          setData([]);
+        }
+      } else {
+        console.log(`[PriceChart] ⚠️ Erro ao buscar dados reais para ${symbol}`);
+        setData([]);
+      }
+    } catch (error) {
+      console.error(`[PriceChart] ❌ Erro ao buscar dados reais:`, error);
+      setData([]);
     }
-    
-    setData(sampleData);
-    console.log(`[PriceChart] ✅ Dados de exemplo gerados: ${sampleData.length} pontos`);
   }, [symbol]);
 
   // Atualiza dados baseado nos preços WebSocket (apenas adiciona novos pontos)

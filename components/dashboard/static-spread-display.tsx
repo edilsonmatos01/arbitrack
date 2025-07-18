@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { TrendingUp, Clock, Activity } from 'lucide-react';
 
 interface SpreadInfo {
@@ -76,63 +76,39 @@ function SpreadCard({ spread }: { spread: SpreadInfo }) {
 }
 
 export default function StaticSpreadDisplay() {
-  // Dados estáticos baseados em spreads reais típicos
-  const spreads: SpreadInfo[] = [
-    {
-      symbol: 'BTC/USDT',
-      spread: 0.75,
-      buyExchange: 'Gate.io',
-      sellExchange: 'MEXC',
-      volume24h: '$2.1B',
-      lastUpdate: '2 min atrás',
-      status: 'active'
-    },
-    {
-      symbol: 'ETH/USDT',
-      spread: 0.52,
-      buyExchange: 'MEXC',
-      sellExchange: 'Binance',
-      volume24h: '$1.8B',
-      lastUpdate: '3 min atrás',
-      status: 'active'
-    },
-    {
-      symbol: 'BNB/USDT',
-      spread: 0.38,
-      buyExchange: 'Gate.io',
-      sellExchange: 'Bybit',
-      volume24h: '$580M',
-      lastUpdate: '1 min atrás',
-      status: 'low'
-    },
-    {
-      symbol: 'ADA/USDT',
-      spread: 1.25,
-      buyExchange: 'Bybit',
-      sellExchange: 'Gate.io',
-      volume24h: '$320M',
-      lastUpdate: '4 min atrás',
-      status: 'high'
-    },
-    {
-      symbol: 'SOL/USDT',
-      spread: 0.89,
-      buyExchange: 'MEXC',
-      sellExchange: 'Binance',
-      volume24h: '$450M',
-      lastUpdate: '2 min atrás',
-      status: 'active'
-    },
-    {
-      symbol: 'DOT/USDT',
-      spread: 0.67,
-      buyExchange: 'Gate.io',
-      sellExchange: 'MEXC',
-      volume24h: '$180M',
-      lastUpdate: '5 min atrás',
-      status: 'active'
-    }
-  ];
+  const [spreads, setSpreads] = useState<SpreadInfo[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRealSpreads = async () => {
+      try {
+        const response = await fetch('/api/spread-history?limit=6');
+        if (response.ok) {
+          const data = await response.json();
+          const realSpreads: SpreadInfo[] = data.map((spread: any) => ({
+            symbol: spread.symbol,
+            spread: spread.spread,
+            buyExchange: spread.exchangeBuy,
+            sellExchange: spread.exchangeSell,
+            volume24h: 'N/A',
+            lastUpdate: new Date(spread.timestamp).toLocaleTimeString(),
+            status: spread.spread > 1 ? 'high' : spread.spread > 0.5 ? 'active' : 'low'
+          }));
+          setSpreads(realSpreads);
+        } else {
+          // Fallback: array vazio se não conseguir buscar dados
+          setSpreads([]);
+        }
+      } catch (error) {
+        console.error('Erro ao buscar spreads reais:', error);
+        setSpreads([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRealSpreads();
+  }, []);
 
   const averageSpread = spreads.reduce((sum, spread) => sum + spread.spread, 0) / spreads.length;
   const highSpreads = spreads.filter(s => s.status === 'high').length;
