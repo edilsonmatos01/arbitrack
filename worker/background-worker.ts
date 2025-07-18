@@ -71,9 +71,6 @@ async function monitorAndStore(): Promise<void> {
         // Buscar spreads com preços válidos (últimas 24 horas)
         const recentSpreads = await prisma.spreadHistory.findMany({
           where: {
-            timestamp: {
-              gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Últimas 24h
-            },
             spotPrice: {
               gt: 0
             },
