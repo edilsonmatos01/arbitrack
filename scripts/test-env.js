@@ -1,61 +1,26 @@
-console.log('Verificando configuração do ambiente...');
+require('dotenv').config();
 
-// Verificar variáveis de ambiente
-console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'Configurada' : 'Não configurada');
-console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
-console.log('PORT:', process.env.PORT || '10000');
+console.log('🔍 Testando variáveis de ambiente...');
+console.log('');
 
-// Verificar se o banco está acessível
-const { PrismaClient } = require('@prisma/client');
-
-async function testDatabase() {
-  const prisma = new PrismaClient({
-    log: ['error', 'warn']
-  });
-
-  try {
-    console.log('\nTestando conexão com banco...');
-    await prisma.$connect();
-    console.log('✅ Conexão com banco OK');
-    
-    // Testar consulta simples
-    const count = await prisma.spreadHistory.count();
-    console.log(`📊 Total de registros: ${count}`);
-    
-    // Testar consulta com filtro de tempo
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentCount = await prisma.spreadHistory.count({
-      where: {
-        timestamp: {
-          gte: twentyFourHoursAgo,
-        },
-      }
-    });
-    console.log(`📈 Registros das últimas 24h: ${recentCount}`);
-    
-    // Testar spread máximo para ERA_USDT
-    const maxSpread = await prisma.spreadHistory.findFirst({
-      where: {
-        symbol: 'ERA_USDT',
-        timestamp: {
-          gte: twentyFourHoursAgo,
-        },
-      },
-      select: {
-        spread: true
-      },
-      orderBy: {
-        spread: 'desc'
-      }
-    });
-    
-    console.log(`📊 Spread máximo ERA_USDT: ${maxSpread?.spread?.toFixed(2)}%`);
-    
-  } catch (error) {
-    console.error('❌ Erro no banco:', error.message);
-  } finally {
-    await prisma.$disconnect();
-  }
+console.log('📊 DATABASE_URL:');
+console.log(process.env.DATABASE_URL ? '✅ Definida' : '❌ Não definida');
+if (process.env.DATABASE_URL) {
+  console.log('   URL:', process.env.DATABASE_URL.substring(0, 50) + '...');
 }
 
-testDatabase(); 
+console.log('');
+console.log('🌍 NODE_ENV:', process.env.NODE_ENV || '❌ Não definida');
+
+console.log('');
+console.log('🔑 Variáveis de API (não necessárias):');
+console.log('   GATEIO_API_KEY:', process.env.GATEIO_API_KEY ? '✅ Definida' : '❌ Não definida');
+console.log('   MEXC_API_KEY:', process.env.MEXC_API_KEY ? '✅ Definida' : '❌ Não definida');
+
+console.log('');
+console.log('📡 URLs de WebSocket (para dados públicos):');
+console.log('   Gate.io WS:', 'wss://api.gateio.ws/ws/v4/');
+console.log('   MEXC WS:', 'wss://wbs.mexc.com/ws');
+
+console.log('');
+console.log('✅ Teste concluído!'); 

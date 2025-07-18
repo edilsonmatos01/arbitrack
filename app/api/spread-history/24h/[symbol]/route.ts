@@ -1,26 +1,53 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import prisma from '@/lib/prisma';
 import { toZonedTime, format } from 'date-fns-tz';
-
-let prisma: PrismaClient | null = null;
-
-try {
-  prisma = new PrismaClient();
-} catch (error) {
-  console.warn('Aviso: Não foi possível conectar ao banco de dados');
-}
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Cache em memória para dados recentes (5 minutos)
-const cache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+// Cache em memória otimizado com TTL
+class OptimizedCache {
+  private cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+  private maxSize = 1000; // Limite máximo de itens no cache
 
-// Função para formatação de data/hora usando horário local
+  set(key: string, data: any, ttl: number = 5 * 60 * 1000) {
+    // Limpar cache se estiver muito cheio
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
+    }
+
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl
+    });
+  }
+
+  get(key: string): any | null {
+    const item = this.cache.get(key);
+    if (!item) return null;
+
+    if (Date.now() - item.timestamp > item.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return item.data;
+  }
+
+  clear() {
+    this.cache.clear();
+  }
+}
+
+const cache = new OptimizedCache();
+
+// Função para formatação de data/hora otimizada
 function formatDateTime(date: Date): string {
   try {
-    // Usar horário local sem conversão de timezone
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const hours = String(date.getHours()).padStart(2, '0');
@@ -40,31 +67,52 @@ function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
   return rounded;
 }
 
+// Função otimizada para agrupar dados
+function groupDataOptimized(data: any[], intervalMinutes: number = 30) {
+  const grouped = new Map<string, { max: number; count: number }>();
+  
+  for (const record of data) {
+    const roundedTime = roundToNearestInterval(record.timestamp, intervalMinutes);
+    const timeKey = formatDateTime(roundedTime);
+    
+    const existing = grouped.get(timeKey);
+    if (existing) {
+      existing.max = Math.max(existing.max, record.spread);
+      existing.count += 1;
+    } else {
+      grouped.set(timeKey, { max: record.spread, count: 1 });
+    }
+  }
+  
+  return grouped;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { symbol: string } }
 ) {
   try {
     const symbol = params.symbol;
-    if (!symbol) {
+    console.log(`[API] Spread History 24h - Symbol recebido: ${symbol}`);
+    
+    if (!symbol || symbol.trim() === '') {
+      console.error('[API] Symbol inválido ou vazio');
       return NextResponse.json({ error: 'Symbol is required' }, { status: 400 });
     }
 
     if (!prisma) {
-      console.warn('Aviso: Banco de dados não disponível');
-      return NextResponse.json([]);
+      console.warn('[API] Aviso: Banco de dados não disponível');
+      return NextResponse.json({ error: 'Database not available' }, { status: 503 });
     }
 
     // Verificar cache primeiro
     const cacheKey = `spread-history-24h-${symbol}`;
     const cachedData = cache.get(cacheKey);
-    if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
+    if (cachedData) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (24h)`);
-      return NextResponse.json(cachedData.data);
+      return NextResponse.json(cachedData);
     }
     
-    console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
-
     console.log(`[API] Buscando dados do banco para ${symbol} (24h)...`);
     const startTime = Date.now();
 
@@ -72,11 +120,7 @@ export async function GET(
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    console.log(`[Timezone Debug] Agora (UTC): ${now.toISOString()}`);
-    console.log(`[Timezone Debug] Início (UTC): ${start.toISOString()}`);
-    console.log(`Buscando dados para ${symbol} de ${start.toISOString()} até ${now.toISOString()}`);
-
-    // Buscar dados do banco
+    // Consulta otimizada com LIMIT e índices
     const spreadHistory = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
@@ -84,7 +128,6 @@ export async function GET(
           gte: start,
           lte: now
         },
-        // Garante que só pegamos registros com spread válido
         spread: { gt: 0 }
       },
       select: {
@@ -93,59 +136,21 @@ export async function GET(
       },
       orderBy: {
         timestamp: 'asc'
-      }
+      },
+      // Limitar a 10.000 registros para evitar sobrecarga
+      take: 10000
     });
 
     console.log(`Encontrados ${spreadHistory.length} registros para ${symbol} em ${Date.now() - startTime}ms`);
 
     if (spreadHistory.length === 0) {
       console.log(`[API] Nenhum registro encontrado para ${symbol}`);
-      // Salvar resultado vazio no cache
-      cache.set(cacheKey, {
-        data: [],
-        timestamp: Date.now()
-      });
+      cache.set(cacheKey, [], 2 * 60 * 1000); // Cache por 2 minutos para dados vazios
       return NextResponse.json([]);
     }
 
-    console.log(`[API] Primeiros 3 registros:`, spreadHistory.slice(0, 3));
-    console.log(`[API] Últimos 3 registros:`, spreadHistory.slice(-3));
-
-    // Agrupar dados em intervalos de 30 minutos usando Map
-    const groupedData = new Map<string, { max: number; count: number }>();
-    
-    // Usar horário local sem conversão
-    let currentTime = roundToNearestInterval(start, 30);
-    const endTime = roundToNearestInterval(now, 30);
-
-    while (currentTime <= endTime) {
-      const timeKey = formatDateTime(currentTime);
-      if (!groupedData.has(timeKey)) {
-        groupedData.set(timeKey, {
-          max: 0,
-          count: 0
-        });
-      }
-      currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
-    }
-
-    // Processar dados em lotes para melhor performance
-    const batchSize = 1000;
-    for (let i = 0; i < spreadHistory.length; i += batchSize) {
-      const batch = spreadHistory.slice(i, i + batchSize);
-      
-      for (const record of batch) {
-        // Usar timestamp do banco diretamente sem conversão
-        const roundedTime = roundToNearestInterval(record.timestamp, 30);
-        const timeKey = formatDateTime(roundedTime);
-        
-        const group = groupedData.get(timeKey);
-        if (group) {
-          group.max = Math.max(group.max, record.spread);
-          group.count += 1;
-        }
-      }
-    }
+    // Agrupar dados otimizado
+    const groupedData = groupDataOptimized(spreadHistory, 30);
 
     // Converte para o formato esperado pelo gráfico
     const formattedData = Array.from(groupedData.entries())
@@ -153,7 +158,7 @@ export async function GET(
         timestamp,
         spread_percentage: data.max
       }))
-      .filter(item => item.spread_percentage > 0 && item.timestamp) // Garantir que tem timestamp válido
+      .filter(item => item.spread_percentage > 0 && item.timestamp)
       .sort((a, b) => {
         const [dateA, timeA] = a.timestamp.split(' - ');
         const [dateB, timeB] = b.timestamp.split(' - ');
@@ -168,27 +173,27 @@ export async function GET(
         return minuteA - minuteB;
       });
 
-    console.log(`[API] Dados agrupados: ${groupedData.size} intervalos`);
-    console.log(`[API] Dados formatados: ${formattedData.length} pontos`);
-    
-    if (formattedData.length === 0) {
-      console.log(`[API] AVISO: Dados formatados estão vazios para ${symbol}`);
-      console.log(`[API] Verificando groupedData:`, Array.from(groupedData.entries()).slice(0, 3));
-    }
-
-    // Salvar no cache
-    cache.set(cacheKey, {
-      data: formattedData,
-      timestamp: Date.now()
-    });
+    // Salvar no cache com TTL de 5 minutos
+    cache.set(cacheKey, formattedData, 5 * 60 * 1000);
 
     console.log(`[API] Processamento concluído em ${Date.now() - startTime}ms`);
-    console.log(`[API] Primeiro timestamp: ${formattedData[0]?.timestamp || 'N/A'}`);
-    console.log(`[API] Último timestamp: ${formattedData[formattedData.length - 1]?.timestamp || 'N/A'}`);
+    console.log(`[API] Dados formatados: ${formattedData.length} pontos`);
     
     return NextResponse.json(formattedData);
   } catch (error) {
-    console.error('Error fetching spread history:', error);
-    return NextResponse.json([]);
+    console.error('[API] Error fetching spread history:', error);
+    
+    // Se for erro de conexão com banco, retornar erro específico
+    if (error instanceof Error && error.message.includes('Can\'t reach database server')) {
+      return NextResponse.json({ 
+        error: 'Database connection failed',
+        message: 'Unable to connect to database server'
+      }, { status: 503 });
+    }
+    
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      message: 'An unexpected error occurred'
+    }, { status: 500 });
   }
 } 

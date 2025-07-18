@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import dbConnection from '@/lib/db-connection';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,65 +26,43 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(cached.data);
     }
 
-    // Se não há prisma, retornar dados mockados para performance
-    if (!prisma) {
-      console.warn('[API] Banco de dados não disponível, retornando dados mockados');
-      const mockData: any[] = [];
-      positionsCache.set(cacheKey, { data: mockData, timestamp: Date.now() });
-      return NextResponse.json(mockData);
-    }
+    // Tentar buscar do banco usando conexão direta
+    try {
+      let positions: any[] = [];
 
-    // Timeout reduzido para 3 segundos (mais agressivo)
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Timeout')), 3000);
-    });
-
-    let positionsPromise;
-
-    if (id) {
-      // Buscar posição específica por ID
-      positionsPromise = prisma.position.findUnique({
-        where: { id }
-      }).then(pos => pos ? [pos] : []);
-    } else {
-      // Buscar posições com filtros otimizados
-      const whereClause: any = {};
-      
-      // Adicionar filtro por usuário se fornecido
-      if (userId) {
-        // Por enquanto, não temos campo user_id, então buscamos todas
-        // TODO: Implementar filtro por usuário quando o schema for atualizado
-        console.log('[API] Filtro por usuário solicitado:', userId);
+      if (id) {
+        // Buscar posição específica por ID
+        const query = 'SELECT * FROM "Position" WHERE id = $1';
+        const result = await dbConnection.executeQuery(query, [id]);
+        positions = result;
+      } else {
+        // Buscar posições com filtros otimizados
+        const query = `
+          SELECT id, symbol, quantity, "spotEntry", "futuresEntry", 
+                 "spotExchange", "futuresExchange", "isSimulated", 
+                 "createdAt", "updatedAt"
+          FROM "Position" 
+          ORDER BY "createdAt" DESC 
+          LIMIT 20
+        `;
+        positions = await dbConnection.executeQuery(query);
       }
 
-      positionsPromise = prisma.position.findMany({
-        where: whereClause,
-        orderBy: {
-          createdAt: 'desc'
-        },
-        take: 20, // Reduzido ainda mais para melhor performance
-        select: {
-          id: true,
-          symbol: true,
-          quantity: true,
-          spotEntry: true,
-          futuresEntry: true,
-          spotExchange: true,
-          futuresExchange: true,
-          isSimulated: true,
-          createdAt: true,
-          updatedAt: true
-        }
-      });
+      // Armazenar no cache
+      positionsCache.set(cacheKey, { data: positions, timestamp: Date.now() });
+
+      console.log(`[API] ${positions.length} posições encontradas`);
+      return NextResponse.json(positions);
+    } catch (dbError) {
+      console.error('[API] Erro ao buscar do banco:', dbError);
+      // Continua com fallback
     }
 
-    const positions = await Promise.race([positionsPromise, timeoutPromise]) as any[];
-
-    // Armazenar no cache
-    positionsCache.set(cacheKey, { data: positions, timestamp: Date.now() });
-
-    console.log(`[API] ${positions.length} posições encontradas`);
-    return NextResponse.json(positions);
+    // Fallback: retornar array vazio se não conseguiu buscar do banco
+    console.log('[API] Usando fallback - retornando array vazio');
+    const mockData: any[] = [];
+    positionsCache.set(cacheKey, { data: mockData, timestamp: Date.now() });
+    return NextResponse.json(mockData);
   } catch (error) {
     console.error('[API] Erro ao buscar posições:', error);
     
@@ -99,10 +77,6 @@ export async function POST(req: NextRequest) {
   console.log('[API] POST /api/positions - Iniciando...');
   
   try {
-    if (!prisma) {
-      return NextResponse.json({ error: 'Banco de dados não disponível' }, { status: 500 });
-    }
-
     const body = await req.json();
     console.log('[API] Dados recebidos:', body);
     const { symbol, quantity, spotEntry, futuresEntry, spotExchange, futuresExchange, isSimulated } = body;
@@ -111,20 +85,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Todos os campos são obrigatórios' }, { status: 400 });
     }
 
-    const position = await prisma.position.create({
-      data: {
-        symbol,
-        quantity,
-        spotEntry,
-        futuresEntry,
-        spotExchange,
-        futuresExchange,
-        isSimulated: isSimulated || false
-      }
-    });
-
-    console.log('[API] Posição criada:', position);
-    return NextResponse.json(position);
+    // Criar posição usando conexão direta
+    const query = `
+      INSERT INTO "Position" (id, symbol, quantity, "spotEntry", "futuresEntry", 
+                             "spotExchange", "futuresExchange", "isSimulated", 
+                             "createdAt", "updatedAt")
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *
+    `;
+    
+    const id = `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date();
+    
+    const params = [
+      id,
+      symbol,
+      quantity,
+      spotEntry,
+      futuresEntry,
+      spotExchange,
+      futuresExchange,
+      isSimulated || false,
+      now,
+      now
+    ];
+    
+    const result = await dbConnection.executeQuery(query, params);
+    console.log('[API] Posição criada:', result[0]);
+    return NextResponse.json(result[0]);
   } catch (error) {
     console.error('[API] Erro ao criar posição:', error);
     return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
@@ -136,10 +124,6 @@ export async function DELETE(req: NextRequest) {
   console.log('[API] DELETE /api/positions - Iniciando...');
   
   try {
-    if (!prisma) {
-      return NextResponse.json({ error: 'Banco de dados não disponível' }, { status: 500 });
-    }
-
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     
@@ -149,9 +133,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'ID da posição é obrigatório' }, { status: 400 });
     }
 
-    await prisma.position.delete({
-      where: { id }
-    });
+    // Remover posição usando conexão direta
+    const query = 'DELETE FROM "Position" WHERE id = $1 RETURNING *';
+    const result = await dbConnection.executeQuery(query, [id]);
+    
+    if (result.length === 0) {
+      return NextResponse.json({ error: 'Posição não encontrada' }, { status: 404 });
+    }
 
     return NextResponse.json({ message: 'Posição removida com sucesso', id });
   } catch (error) {

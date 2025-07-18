@@ -32,7 +32,7 @@ export default function ManualTotalBalanceCard() {
         setError('Erro ao carregar saldos');
       }
     } catch (error) {
-      console.error('Erro ao carregar saldos manuais:', error);
+      console.error('Erro ao carregar saldo total:', error);
       setError('Erro de conexão');
     } finally {
       setIsLoading(false);
@@ -69,11 +69,11 @@ export default function ManualTotalBalanceCard() {
     <div className="bg-dark-card p-6 rounded-lg shadow">
       <div className="flex justify-between items-start mb-4">
         <div>
-          <h3 className="text-lg font-medium text-white">Saldo Total Manual</h3>
+          <h3 className="text-lg font-medium text-white">Saldo Total</h3>
           <p className="text-sm text-gray-400">
             {balances.length > 0 
-              ? `${balances.length} saldo${balances.length !== 1 ? 's' : ''} configurado${balances.length !== 1 ? 's' : ''} manualmente`
-              : 'Nenhum saldo configurado'
+              ? `${balances.length} saldo${balances.length !== 1 ? 's' : ''} adicionado${balances.length !== 1 ? 's' : ''} manualmente`
+              : 'Nenhum saldo adicionado'
             }
           </p>
           {lastUpdate && (
@@ -103,9 +103,9 @@ export default function ManualTotalBalanceCard() {
         ) : balances.length === 0 ? (
           <div className="text-center py-4">
             <DollarSign className="h-8 w-8 text-gray-600 mx-auto mb-2" />
-            <div className="text-gray-400 text-sm">Nenhum saldo configurado</div>
+            <div className="text-gray-400 text-sm">Nenhum saldo adicionado</div>
             <div className="text-gray-500 text-xs mt-1">
-              Configure saldos em Configurações
+              Adicione saldos em Carteira
             </div>
           </div>
         ) : (

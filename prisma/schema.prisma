@@ -6,8 +6,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  // Configurações de pool de conexões para otimizar performance
-  relationMode = "prisma"
 }
 
 model SpreadHistory {

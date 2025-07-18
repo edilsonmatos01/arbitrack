@@ -7,14 +7,13 @@ import ManualTotalBalanceCard from '@/components/dashboard/manual-total-balance-
 import StaticMetrics from '@/components/dashboard/static-metrics';
 import EnhancedPercentageGauge from '@/components/dashboard/enhanced-percentage-gauge';
 import SoundAlertControls from '@/components/arbitragem/SoundAlertControls';
-import { LayoutDashboard, Repeat, Wallet, History, Settings, AlertCircle, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, Repeat, Wallet, History, Settings, AlertCircle } from 'lucide-react';
 
 // Ícones Lucide com estilo
 const iconProps = { className: "h-5 w-5" };
 const AppIcons = {
   LayoutDashboard: <LayoutDashboard {...iconProps} />,
   Repeat: <Repeat {...iconProps} />,
-  TrendingUp: <TrendingUp {...iconProps} />,
   Wallet: <Wallet {...iconProps} />,
   History: <History {...iconProps} />,
   Settings: <Settings {...iconProps} />,
@@ -26,10 +25,8 @@ export default function DashboardPage() {
   const sidebarNavItems = [
     { title: 'Dashboard', href: '/dashboard', icon: AppIcons.LayoutDashboard },
     { title: 'Arbitragem', href: '/arbitragem', icon: AppIcons.Repeat },
-    { title: 'Big Arb', href: '/big-arb', icon: AppIcons.TrendingUp },
-    { title: 'Carteiras', href: '/carteiras', icon: AppIcons.Wallet },
     { title: 'Histórico', href: '/historico', icon: AppIcons.History },
-    { title: 'Configurações', href: '/configuracoes', icon: AppIcons.Settings },
+    { title: 'Carteira', href: '/carteira', icon: AppIcons.Wallet },
   ];
 
   return (

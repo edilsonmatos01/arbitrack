@@ -13,18 +13,47 @@ try {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Cache em memória para dados recentes (5 minutos)
-const cache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+// Cache em memória otimizado com TTL
+class OptimizedCache {
+  private cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+  private maxSize = 1000; // Limite máximo de itens no cache
 
-// Função para limpar cache
-function clearCache() {
-  cache.clear();
-  console.log('[CACHE] Cache limpo');
+  set(key: string, data: any, ttl: number = 5 * 60 * 1000) {
+    // Limpar cache se estiver muito cheio
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
+    }
+
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl
+    });
+  }
+
+  get(key: string): any | null {
+    const item = this.cache.get(key);
+    if (!item) return null;
+
+    if (Date.now() - item.timestamp > item.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return item.data;
+  }
+
+  clear() {
+    this.cache.clear();
+  }
 }
 
+const cache = new OptimizedCache();
+
 function formatDateTime(date: Date): string {
-  // Usar horário local sem conversão
   const day = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const hours = String(date.getHours()).padStart(2, '0');
@@ -38,6 +67,44 @@ function roundToNearestInterval(date: Date, intervalMinutes: number): Date {
   const rounded = new Date(date);
   rounded.setMinutes(minutes, 0, 0);
   return rounded;
+}
+
+// Função otimizada para agrupar dados de preços
+function groupPriceDataOptimized(data: any[], intervalMinutes: number = 30) {
+  const grouped = new Map<string, { 
+    spot: { sum: number; count: number }; 
+    futures: { sum: number; count: number }; 
+  }>();
+  
+  for (const record of data) {
+    const roundedTime = roundToNearestInterval(record.timestamp, intervalMinutes);
+    const timeKey = formatDateTime(roundedTime);
+    
+    const existing = grouped.get(timeKey);
+    if (existing) {
+      if (record.spotPrice > 0) {
+        existing.spot.sum += record.spotPrice;
+        existing.spot.count += 1;
+      }
+      if (record.futuresPrice > 0) {
+        existing.futures.sum += record.futuresPrice;
+        existing.futures.count += 1;
+      }
+    } else {
+      grouped.set(timeKey, {
+        spot: { 
+          sum: record.spotPrice > 0 ? record.spotPrice : 0, 
+          count: record.spotPrice > 0 ? 1 : 0 
+        },
+        futures: { 
+          sum: record.futuresPrice > 0 ? record.futuresPrice : 0, 
+          count: record.futuresPrice > 0 ? 1 : 0 
+        }
+      });
+    }
+  }
+  
+  return grouped;
 }
 
 export async function GET(
@@ -58,9 +125,9 @@ export async function GET(
     // Verificar cache primeiro
     const cacheKey = `price-comparison-${symbol}`;
     const cachedData = cache.get(cacheKey);
-    if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
+    if (cachedData) {
       console.log(`[Cache] Retornando dados em cache para ${symbol} (price-comparison)`);
-      return NextResponse.json(cachedData.data);
+      return NextResponse.json(cachedData);
     }
 
     console.log(`[API] Buscando dados do banco para ${symbol} (price-comparison)...`);
@@ -70,9 +137,7 @@ export async function GET(
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    console.log(`Buscando dados para ${symbol} de ${start.toISOString()} até ${now.toISOString()}`);
-
-    // Otimização: usar select específico e limitar dados
+    // Consulta otimizada com LIMIT e select específico
     const priceHistory = await prisma.spreadHistory.findMany({
       where: {
         symbol: symbol,
@@ -80,9 +145,6 @@ export async function GET(
           gte: start,
           lte: now
         }
-        // Removido filtro restritivo para debug
-        // spotPrice: { gt: 0 },
-        // futuresPrice: { gt: 0 }
       },
       select: {
         timestamp: true,
@@ -91,65 +153,20 @@ export async function GET(
       },
       orderBy: {
         timestamp: 'asc'
-      }
+      },
+      // Limitar a 10.000 registros para evitar sobrecarga
+      take: 10000
     });
 
     console.log(`Encontrados ${priceHistory.length} registros para ${symbol} em ${Date.now() - startTime}ms`);
-    
-    // Log dos primeiros registros para debug
-    if (priceHistory.length > 0) {
-      console.log(`Primeiros 3 registros de ${symbol}:`, priceHistory.slice(0, 3));
-    }
 
     if (priceHistory.length === 0) {
-      // Salvar resultado vazio no cache
-      cache.set(cacheKey, {
-        data: [],
-        timestamp: Date.now()
-      });
+      cache.set(cacheKey, [], 2 * 60 * 1000); // Cache por 2 minutos para dados vazios
       return NextResponse.json([]);
     }
 
-    // Otimização: agrupar dados em intervalos de 30 minutos usando Map
-    const groupedData = new Map<string, { 
-      spot: { sum: number; count: number }; 
-      futures: { sum: number; count: number }; 
-    }>();
-    
-    // Usar horário local sem conversão
-    let currentTime = roundToNearestInterval(start, 30);
-    const endTime = roundToNearestInterval(now, 30);
-
-    while (currentTime <= endTime) {
-      const timeKey = formatDateTime(currentTime);
-      if (!groupedData.has(timeKey)) {
-        groupedData.set(timeKey, {
-          spot: { sum: 0, count: 0 },
-          futures: { sum: 0, count: 0 }
-        });
-      }
-      currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
-    }
-
-    // Processar dados em lotes para melhor performance
-    const batchSize = 1000;
-    for (let i = 0; i < priceHistory.length; i += batchSize) {
-      const batch = priceHistory.slice(i, i + batchSize);
-      
-      for (const record of batch) {
-        // Usar timestamp do banco diretamente sem conversão
-        const roundedTime = roundToNearestInterval(record.timestamp, 30);
-        const timeKey = formatDateTime(roundedTime);
-        
-        const group = groupedData.get(timeKey);
-        if (group) {
-          group.spot.sum += record.spotPrice;
-          group.spot.count += 1;
-          group.futures.sum += record.futuresPrice;
-          group.futures.count += 1;
-        }
-      }
-    }
+    // Agrupar dados otimizado
+    const groupedData = groupPriceDataOptimized(priceHistory, 30);
 
     // Converte para o formato esperado pelo gráfico
     const formattedData = Array.from(groupedData.entries())
@@ -158,7 +175,7 @@ export async function GET(
         gateio_price: data.spot.count > 0 ? data.spot.sum / data.spot.count : null,
         mexc_price: data.futures.count > 0 ? data.futures.sum / data.futures.count : null
       }))
-      .filter(item => item.gateio_price !== null || item.mexc_price !== null) // Mais flexível
+      .filter(item => item.gateio_price !== null || item.mexc_price !== null)
       .sort((a, b) => {
         const [dateA, timeA] = a.timestamp.split(' - ');
         const [dateB, timeB] = b.timestamp.split(' - ');
@@ -173,11 +190,8 @@ export async function GET(
         return minuteA - minuteB;
       });
 
-    // Salvar no cache
-    cache.set(cacheKey, {
-      data: formattedData,
-      timestamp: Date.now()
-    });
+    // Salvar no cache com TTL de 5 minutos
+    cache.set(cacheKey, formattedData, 5 * 60 * 1000);
 
     console.log(`[API] Processamento concluído em ${Date.now() - startTime}ms`);
     return NextResponse.json(formattedData);

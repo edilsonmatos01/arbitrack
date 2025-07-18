@@ -57,10 +57,7 @@ export default function TotalBalanceCard() {
   // Mapa completo de todas as exchanges e seus endpoints
   const exchangeEndpointMap: { [key: string]: ExchangeEndpoint } = {
     'gateio': { name: 'Gate.io', key: 'gateio', endpoints: ['/api/gateio/wallet-balance', '/api/gateio-futures'] },
-    'mexc': { name: 'MEXC', key: 'mexc', endpoints: ['/api/mexc/wallet-balance'] },
-    'binance': { name: 'Binance', key: 'binance', endpoints: ['/api/binance/wallet-balance'] },
-    'bybit': { name: 'Bybit', key: 'bybit', endpoints: ['/api/bybit/wallet-balance'] },
-    'bitget': { name: 'Bitget', key: 'bitget', endpoints: ['/api/bitget/wallet-balance'] },
+    'mexc': { name: 'MEXC', key: 'mexc', endpoints: ['/api/mexc/wallet-balance'] }
   };
 
   // Função para extrair saldo USDT de qualquer resposta da API
@@ -258,7 +255,7 @@ export default function TotalBalanceCard() {
     <div className="bg-dark-card p-6 rounded-lg shadow">
       <div className="flex justify-between items-start mb-4">
         <div>
-          <h3 className="text-lg font-medium text-white">Saldo Total Exchanges</h3>
+          <h3 className="text-lg font-medium text-white">Saldo das Exchanges</h3>
           <p className="text-sm text-gray-400">
             {activeExchanges.length > 0 
               ? `${activeExchanges.length} exchange${activeExchanges.length !== 1 ? 's' : ''} configurada${activeExchanges.length !== 1 ? 's' : ''} (Spot + Futures)`

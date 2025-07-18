@@ -36,10 +36,7 @@ export default function RealBalanceCard() {
   // Configurações de todas as exchanges suportadas  
   const allExchangeConfigs = [
     { name: 'Gate.io', key: 'gateio', type: 'spot' as const, endpoint: '/api/gateio/wallet-balance' },
-    { name: 'MEXC', key: 'mexc', type: 'futures' as const, endpoint: '/api/mexc/wallet-balance' },
-    { name: 'Binance', key: 'binance', type: 'spot' as const, endpoint: '/api/binance/wallet-balance' },
-    { name: 'Bybit', key: 'bybit', type: 'spot' as const, endpoint: '/api/bybit/wallet-balance' },
-    { name: 'Bitget', key: 'bitget', type: 'spot' as const, endpoint: '/api/bitget/wallet-balance' },
+    { name: 'MEXC', key: 'mexc', type: 'futures' as const, endpoint: '/api/mexc/wallet-balance' }
   ];
 
   // Função para carregar exchanges configuradas

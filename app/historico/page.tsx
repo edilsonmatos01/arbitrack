@@ -385,10 +385,8 @@ export default function HistoricoPage() {
   const sidebarNavItems = [
     { title: 'Dashboard', href: '/dashboard', icon: AppIcons.LayoutDashboard },
     { title: 'Arbitragem', href: '/arbitragem', icon: AppIcons.Repeat },
-    { title: 'Big Arb', href: '/big-arb', icon: AppIcons.TrendingUp },
-    { title: 'Carteiras', href: '/carteiras', icon: AppIcons.Wallet },
     { title: 'Histórico', href: '/historico', icon: AppIcons.History },
-    { title: 'Configurações', href: '/configuracoes', icon: AppIcons.Settings },
+    { title: 'Carteira', href: '/carteira', icon: AppIcons.Wallet },
   ];
 
   return (

@@ -13,6 +13,8 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['ws', 'ccxt']
   },
+  // Configurações para evitar timeouts durante o build
+  staticPageGenerationTimeout: 120,
   // Configurações para produção
   poweredByHeader: false,
   compress: true,

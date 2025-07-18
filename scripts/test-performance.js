@@ -8,10 +8,8 @@ async function testPagePerformance() {
     '/',
     '/dashboard',
     '/arbitragem',
-    '/big-arb',
-    '/carteiras',
     '/historico',
-    '/configuracoes'
+    '/carteira'
   ];
   
   for (const page of pages) {

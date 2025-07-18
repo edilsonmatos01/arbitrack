@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { LineChart as ChartIcon } from 'lucide-react';
 import {
   Dialog,
@@ -12,63 +12,48 @@ import {
 import SoundAlert from './SoundAlert';
 import { useSoundAlerts } from './useSoundAlerts';
 import { useInitDataOptimized } from './useInitDataOptimized';
-import InstantPriceComparisonChart from './InstantPriceComparisonChart';
-import InstantSpread24hChart from './InstantSpread24hChart';
-// import { useChartCache } from '@/lib/chart-cache';
 
-// Funções de prefetch dos gráficos
-function prefetchSpread24h(symbol: string) {
-  // @ts-ignore
-  if (typeof window !== 'undefined' && window.Spread24hChart_localCache) {
-    const cache = window.Spread24hChart_localCache;
-    const CACHE_DURATION = 5 * 60 * 1000;
-    const cached = cache.get(symbol);
-    if (!cached || (Date.now() - cached.timestamp) >= CACHE_DURATION) {
-      fetch(`/api/spread-history/24h/${encodeURIComponent(symbol)}`)
-        .then(res => {
-          if (!res.ok) {
-            console.warn(`[PREFETCH] Erro ao buscar spread-history para ${symbol}: ${res.status}`);
-            return null;
-          }
-          return res.json();
-        })
-        .then(result => {
-          if (Array.isArray(result)) {
-            cache.set(symbol, { data: result, timestamp: Date.now() });
-          }
-        })
-        .catch(err => {
-          console.warn(`[PREFETCH] Erro de rede ao buscar spread-history para ${symbol}:`, err.message);
-        });
-    }
-  }
-}
+// Lazy loading dos componentes de gráfico para melhor performance
+const InstantPriceComparisonChart = lazy(() => import('./InstantPriceComparisonChart'));
+const InstantSpread24hChart = lazy(() => import('./InstantSpread24hChart'));
 
-function prefetchPriceComparison(symbol: string) {
-  // @ts-ignore
-  if (typeof window !== 'undefined' && window.PriceComparisonChart_localCache) {
-    const cache = window.PriceComparisonChart_localCache;
-    const CACHE_DURATION = 5 * 60 * 1000;
-    const cached = cache.get(symbol);
-    if (!cached || (Date.now() - cached.timestamp) >= CACHE_DURATION) {
-      fetch(`/api/price-comparison/${encodeURIComponent(symbol)}`)
-        .then(res => {
-          if (!res.ok) {
-            console.warn(`[PREFETCH] Erro ao buscar price-comparison para ${symbol}: ${res.status}`);
-            return null;
-          }
-          return res.json();
-        })
-        .then(result => {
-          if (Array.isArray(result)) {
-            cache.set(symbol, { data: result, timestamp: Date.now() });
-          }
-        })
-        .catch(err => {
-          console.warn(`[PREFETCH] Erro de rede ao buscar price-comparison para ${symbol}:`, err.message);
-        });
-    }
+// Cache global para dados de gráficos
+const chartCache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+// Função otimizada para prefetch de dados
+function prefetchChartData(symbol: string, chartType: 'spread' | 'comparison') {
+  const cacheKey = `${chartType}-${symbol}`;
+  const cached = chartCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < cached.ttl) {
+    return; // Dados já estão em cache
   }
+
+  const endpoint = chartType === 'spread' 
+    ? `/api/spread-history/24h/${encodeURIComponent(symbol)}`
+    : `/api/price-comparison/${encodeURIComponent(symbol)}`;
+
+  fetch(endpoint)
+    .then(res => {
+      if (!res.ok) {
+        console.warn(`[PREFETCH] Erro ao buscar dados para ${symbol}: ${res.status}`);
+        return null;
+      }
+      return res.json();
+    })
+    .then(result => {
+      if (Array.isArray(result)) {
+        chartCache.set(cacheKey, {
+          data: result,
+          timestamp: Date.now(),
+          ttl: CACHE_TTL
+        });
+      }
+    })
+    .catch(err => {
+      console.warn(`[PREFETCH] Erro de rede para ${symbol}:`, err.message);
+    });
 }
 
 interface MaxSpreadCellProps {
@@ -81,6 +66,16 @@ interface SpreadStats {
   spMax: number | null;
   crosses: number;
 }
+
+// Componente de loading otimizado
+const ChartLoadingSpinner = () => (
+  <div className="flex items-center justify-center h-full">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-custom-cyan mx-auto mb-2"></div>
+      <div className="text-gray-400">Carregando gráfico...</div>
+    </div>
+  </div>
+);
 
 export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h = null }: MaxSpreadCellProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -95,30 +90,42 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   const { data, getMaxSpread, isLoading, error } = useInitDataOptimized();
   const maxSpread = getMaxSpread(symbol);
 
+  // Memoizar o valor do spread para evitar recálculos desnecessários
+  const spreadColor = useMemo(() => {
+    if (maxSpread > 2) return 'text-green-400';
+    if (maxSpread > 1) return 'text-yellow-400';
+    return 'text-gray-400';
+  }, [maxSpread]);
+
   // Funções estáveis usando useCallback para evitar re-renderizações desnecessárias
   const handleModalOpen = useCallback(() => {
     setIsModalOpen(true);
     modalStateRef.current.isOpen = true;
     setIsChartLoading(true);
     
+    // Prefetch dos dados do gráfico quando o modal abre
+    prefetchChartData(symbol, 'spread');
+    prefetchChartData(symbol, 'comparison');
+    
     // Carregamento instantâneo similar à outra plataforma
     setTimeout(() => {
       setIsChartLoading(false);
     }, 50);
-  }, []);
+  }, [symbol]);
 
   const handleChartTypeChange = useCallback((newType: 'spread' | 'comparison') => {
     setChartType(newType);
     modalStateRef.current.chartType = newType;
-  }, []);
+    
+    // Prefetch do tipo de gráfico selecionado
+    prefetchChartData(symbol, newType);
+  }, [symbol]);
 
   const handleModalClose = useCallback((open: boolean) => {
     if (!open) {
-      // Só fechar se o usuário realmente quiser fechar
       modalStateRef.current.isOpen = false;
       setIsModalOpen(false);
     } else {
-      // Se está tentando abrir, permitir
       modalStateRef.current.isOpen = true;
       setIsModalOpen(true);
     }
@@ -127,7 +134,6 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   // Restaurar estado do modal após re-renderizações
   useEffect(() => {
     if (modalStateRef.current.isOpen && !isModalOpen) {
-      // Se o ref indica que o modal deveria estar aberto, mas o estado não está, restaurar
       setIsModalOpen(true);
     }
   }, [isModalOpen]);
@@ -141,13 +147,7 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
     }
   }, [isModalOpen]);
 
-  const getSpreadColor = (spread: number) => {
-    if (spread > 2) return 'text-green-400';
-    if (spread > 1) return 'text-yellow-400';
-    return 'text-gray-400';
-  };
-
-  // Renderização simplificada para teste
+  // Renderização condicional otimizada
   if (isLoading) {
     return <span className="text-gray-500">Carregando...</span>;
   }
@@ -167,7 +167,7 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
   return (
     <div className="flex items-center space-x-2">
       <div className="flex-1">
-        <div className={`text-sm font-bold ${getSpreadColor(maxSpread)}`}>
+        <div className={`text-sm font-bold ${spreadColor}`}>
           {maxSpread.toFixed(2)}%
         </div>
         <div className="text-xs text-gray-400">
@@ -219,20 +219,15 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
             </DialogHeader>
             <div className="flex-1 min-h-0 mt-4">
               {isChartLoading ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-custom-cyan mx-auto mb-2"></div>
-                    <div className="text-gray-400">Carregando gráfico...</div>
-                  </div>
-                </div>
+                <ChartLoadingSpinner />
               ) : (
-                <>
+                <Suspense fallback={<ChartLoadingSpinner />}>
                   {chartType === 'spread' ? (
                     <InstantSpread24hChart symbol={symbol} />
                   ) : (
                     <InstantPriceComparisonChart symbol={symbol} />
                   )}
-                </>
+                </Suspense>
               )}
             </div>
           </DialogContent>

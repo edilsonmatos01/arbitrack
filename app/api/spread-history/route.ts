@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { toZonedTime, format } from 'date-fns-tz';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -31,7 +30,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const symbol = searchParams.get('symbol');
 
-    if (!symbol) {
+    console.log(`[API] Spread History - Symbol recebido: ${symbol}`);
+
+    if (!symbol || symbol.trim() === '') {
+      console.error('[API] Symbol inválido ou vazio');
       return NextResponse.json({ error: 'Symbol is required' }, { status: 400 });
     }
 
@@ -50,8 +52,8 @@ export async function GET(req: NextRequest) {
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     if (!prisma) {
-      console.warn('Aviso: Banco de dados não disponível');
-      return NextResponse.json([]);
+      console.warn('[API] Aviso: Banco de dados não disponível');
+      return NextResponse.json({ error: 'Database not available' }, { status: 503 });
     }
 
     // Otimização: usar select específico e limitar dados
@@ -132,7 +134,19 @@ export async function GET(req: NextRequest) {
     console.log(`[API] Processamento concluído em ${Date.now() - startTime}ms`);
     return NextResponse.json(formattedHistory);
   } catch (error) {
-    console.error('Error fetching spread history:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    console.error('[API] Error fetching spread history:', error);
+    
+    // Se for erro de conexão com banco, retornar erro específico
+    if (error instanceof Error && error.message.includes('Can\'t reach database server')) {
+      return NextResponse.json({ 
+        error: 'Database connection failed',
+        message: 'Unable to connect to database server'
+      }, { status: 503 });
+    }
+    
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      message: 'An unexpected error occurred'
+    }, { status: 500 });
   }
 } 

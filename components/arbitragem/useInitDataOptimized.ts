@@ -56,7 +56,7 @@ export function useInitDataOptimized(userId: string = 'edilsonmatos') {
       console.log('[useInitDataOptimized] Carregando dados...');
       const startTime = Date.now();
       
-      const response = await fetch(`/api/init-data?user_id=${userId}`, {
+      const response = await fetch(`/api/init-data-simple?user_id=${userId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

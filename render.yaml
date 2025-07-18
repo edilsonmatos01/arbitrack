@@ -17,6 +17,70 @@ services:
   env: node
   plan: free
   buildCommand: npm install && npm run build
+  buildFilter:
+    paths:
+    - app/**
+    - components/**
+    - lib/**
+    - public/**
+    - package.json
+    - next.config.js
+    - tsconfig.json
+    - prisma/**
+    - middleware.ts
+    - tailwind.config.ts
+    - postcss.config.mjs
+    - babel.config.js
+    - .babelrc
+    - .eslintrc.js
+    - .eslintrc.json
+    - eslint.config.mjs
+    - .gitattributes
+    - .gitignore
+    - .npmrc
+    - next-env.d.ts
+    - README.md
+    - render.yaml
+    - tsconfig.build.json
+    - tsconfig.prisma.json
+    - tsconfig.scripts.json
+    - tsconfig.server.json
+    - tsconfig.tsbuildinfo
+    - websocket-server.ts
+    - websocket-server.js
+    - server.js
+    - dev-server.js
+    - start-spread-monitor.js
+    - monitor.js
+    - monitor-logs.js
+    - worker/**
+    - scripts/**
+    - src/**
+    - data/**
+    - dist/**
+    - node_modules/**
+    - .next/**
+    - .git/**
+    - logs.txt
+    - logs_worker.txt
+    - mexc_logs.txt
+    - test-*.js
+    - test-*.ts
+    - test-*.html
+    - *.md
+    - ATUALIZACAO_*.md
+    - CONFIGURACAO_*.md
+    - CORRECAO_*.md
+    - DIAGNOSTICO_*.md
+    - ESTRATEGIA_*.md
+    - LIMPEZA_*.md
+    - MELHORIAS_*.md
+    - OTIMIZACAO_*.md
+    - PROBLEMA_*.md
+    - RESULTADOS_*.md
+    - RESUMO_*.md
+    - SOLUCAO_*.md
+    - TESTE_*.md
   startCommand: npm start
   envVars:
     - key: DATABASE_URL

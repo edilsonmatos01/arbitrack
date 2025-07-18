@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 
 // Idealmente, esta interface ArbitrageOpportunity seria importada de um local compartilhado
 // entre o backend (websocket-server.ts) e o frontend.
@@ -34,17 +34,63 @@ interface LivePrices {
     }
 }
 
+// Classe para debouncing de atualizações
+class Debouncer {
+  private timeoutId: NodeJS.Timeout | null = null;
+  private delay: number;
+
+  constructor(delay: number = 100) {
+    this.delay = delay;
+  }
+
+  debounce(func: () => void) {
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+    }
+    this.timeoutId = setTimeout(func, this.delay);
+  }
+
+  cancel() {
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
+  }
+}
+
+// Classe para throttling de mensagens
+class Throttler {
+  private lastCall = 0;
+  private delay: number;
+
+  constructor(delay: number = 50) {
+    this.delay = delay;
+  }
+
+  throttle(func: () => void) {
+    const now = Date.now();
+    if (now - this.lastCall >= this.delay) {
+      func();
+      this.lastCall = now;
+    }
+  }
+}
+
 export function useArbitrageWebSocket(enabled = true) {
   const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
   const [livePrices, setLivePrices] = useState<LivePrices>({});
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
-  // Ref para rastrear se o componente está montado e evitar ações assíncronas
-  // após o desmonte, especialmente útil no Strict Mode do React.
   const isMounted = useRef(false);
+  
+  // Otimizações de performance
+  const debouncer = useRef(new Debouncer(100));
+  const throttler = useRef(new Throttler(50));
+  const opportunitiesBuffer = useRef<ArbitrageOpportunity[]>([]);
+  const pricesBuffer = useRef<LivePrices>({});
 
   // Função para garantir que opportunities seja sempre um array válido
-  const safeSetOpportunities = (newOpportunities: ArbitrageOpportunity[] | ((prev: ArbitrageOpportunity[]) => ArbitrageOpportunity[])) => {
+  const safeSetOpportunities = useCallback((newOpportunities: ArbitrageOpportunity[] | ((prev: ArbitrageOpportunity[]) => ArbitrageOpportunity[])) => {
     try {
       if (typeof newOpportunities === 'function') {
         setOpportunities(prev => {
@@ -58,10 +104,51 @@ export function useArbitrageWebSocket(enabled = true) {
       console.error('[WS Hook] Erro ao atualizar opportunities:', error);
       setOpportunities([]);
     }
-  };
+  }, []);
 
-  const getWebSocketURL = () => {
-    // A URL agora é lida da variável de ambiente, que é definida no processo de build.
+  // Função otimizada para atualizar oportunidades
+  const updateOpportunities = useCallback((newOpportunity: ArbitrageOpportunity) => {
+    opportunitiesBuffer.current = opportunitiesBuffer.current.filter(p => 
+      p.baseSymbol !== newOpportunity.baseSymbol || 
+      p.arbitrageType !== newOpportunity.arbitrageType
+    );
+    opportunitiesBuffer.current.unshift(newOpportunity);
+    
+    // Manter apenas as 50 oportunidades mais recentes
+    if (opportunitiesBuffer.current.length > 50) {
+      opportunitiesBuffer.current = opportunitiesBuffer.current.slice(0, 50);
+    }
+
+    // Debounce a atualização do estado
+    debouncer.current.debounce(() => {
+      if (isMounted.current) {
+        safeSetOpportunities([...opportunitiesBuffer.current]);
+      }
+    });
+  }, [safeSetOpportunities]);
+
+  // Função otimizada para atualizar preços
+  const updateLivePrices = useCallback((symbol: string, marketType: string, bestAsk: number, bestBid: number) => {
+    if (!pricesBuffer.current[symbol]) {
+      pricesBuffer.current[symbol] = {};
+    }
+    pricesBuffer.current[symbol][marketType] = { bestAsk, bestBid };
+
+    // Throttle a atualização do estado
+    throttler.current.throttle(() => {
+      if (isMounted.current) {
+        setLivePrices(prev => ({
+          ...prev,
+          [symbol]: {
+            ...prev[symbol],
+            [marketType]: { bestAsk, bestBid }
+          }
+        }));
+      }
+    });
+  }, []);
+
+  const getWebSocketURL = useCallback(() => {
     const wsURL = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
 
     console.log('[WS Hook] Variável de ambiente NEXT_PUBLIC_WEBSOCKET_URL:', wsURL);
@@ -69,7 +156,6 @@ export function useArbitrageWebSocket(enabled = true) {
 
     if (!wsURL) {
       console.error("A variável de ambiente NEXT_PUBLIC_WEBSOCKET_URL não está definida!");
-      // Em desenvolvimento, podemos ter um fallback para a configuração antiga
       if (process.env.NODE_ENV === 'development') {
         if (typeof window === 'undefined') return '';
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -83,18 +169,16 @@ export function useArbitrageWebSocket(enabled = true) {
 
     console.log('[WS Hook] Usando URL da variável de ambiente:', wsURL);
     return wsURL;
-  };
+  }, []);
 
-  const connect = () => {
-    // Limpa qualquer timeout de reconexão pendente
+  const connect = useCallback(() => {
     if (reconnectTimeout.current) {
       clearTimeout(reconnectTimeout.current);
     }
-    // Previne novas conexões se já houver uma ou se o componente estiver desmontado.
     if (ws.current || !isMounted.current) return;
 
     const wsURL = getWebSocketURL();
-    if (!wsURL) return; // Não tenta conectar se não houver URL (SSR)
+    if (!wsURL) return;
 
     ws.current = new WebSocket(wsURL);
     console.log(`[WS Hook] Tentando conectar ao servidor WebSocket em ${wsURL}...`);
@@ -107,73 +191,45 @@ export function useArbitrageWebSocket(enabled = true) {
       if (!isMounted.current) return;
       try {
         const message = JSON.parse(event.data);
-        console.log('[DEBUG] Mensagem WebSocket recebida:', message);
-        console.log('[DEBUG] Tipo da mensagem:', message.type);
         
         if (message.type === 'arbitrage') {
-          console.log('[DEBUG] ✅ Oportunidade de arbitragem recebida:', message);
-          console.log('[DEBUG] baseSymbol:', message.baseSymbol);
-          console.log('[DEBUG] profitPercentage:', message.profitPercentage);
-          console.log('[DEBUG] arbitrageType:', message.arbitrageType);
-          console.log('[DEBUG] buyAt:', message.buyAt);
-          console.log('[DEBUG] sellAt:', message.sellAt);
-          
-          safeSetOpportunities((prev) => {
-            console.log('[DEBUG] Adicionando oportunidade ao estado. Estado anterior:', prev.length);
-            // Remove oportunidades antigas do mesmo par
-            const filtered = prev.filter(p => 
-              p.baseSymbol !== message.baseSymbol || 
-              p.arbitrageType !== message.arbitrageType
-            );
-            const newState = [message, ...filtered].slice(0, 99);
-            console.log('[DEBUG] Novo estado de oportunidades:', newState.length);
-            return newState;
-          });
+          updateOpportunities(message);
         }
         else if (message.type === 'price-update') {
           const { symbol, marketType, bestAsk, bestBid } = message;
-          console.log(`[DEBUG] Atualização de preço recebida para ${symbol} (${marketType}):`, { bestAsk, bestBid });
-          setLivePrices(prev => ({
-            ...prev,
-            [symbol]: {
-              ...prev[symbol],
-              [marketType]: { bestAsk, bestBid }
-            }
-          }));
+          updateLivePrices(symbol, marketType, bestAsk, bestBid);
         }
         else {
           console.log('[DEBUG] ⚠️ Tipo de mensagem não reconhecido:', message.type);
         }
       } catch (error) {
         console.error('[WS Hook] Erro ao processar mensagem do WebSocket:', error);
-        console.error('[WS Hook] Mensagem que causou o erro:', event.data);
       }
     };
 
     ws.current.onerror = (error) => {
       console.error('[WS Hook] Erro na conexão WebSocket:', error);
-      // O evento 'onclose' será disparado em seguida para tratar a reconexão.
     };
 
     ws.current.onclose = () => {
       console.log('[WS Hook] Conexão WebSocket fechada.');
-      // Só tenta reconectar se o componente ainda estiver montado.
       if (isMounted.current) {
         console.log('[WS Hook] Tentando reconectar em 5 segundos...');
-        ws.current = null; // Limpa a instância antiga do socket.
+        ws.current = null;
         reconnectTimeout.current = setTimeout(connect, 5000);
       }
     };
-  };
+  }, [getWebSocketURL, updateOpportunities, updateLivePrices]);
 
   useEffect(() => {
     isMounted.current = true;
     if (enabled) {
       connect();
     }
-    // A função de cleanup é executada quando o componente é desmontado ou enabled muda para false.
+    
     return () => {
       isMounted.current = false;
+      debouncer.current.cancel();
       if (reconnectTimeout.current) {
         clearTimeout(reconnectTimeout.current);
       }
@@ -183,7 +239,7 @@ export function useArbitrageWebSocket(enabled = true) {
         console.log('[WS Hook] Limpeza da conexão WebSocket concluída.');
       }
     };
-  }, [enabled]);
+  }, [enabled, connect]);
 
   return { 
     opportunities: Array.isArray(opportunities) ? opportunities : [], 

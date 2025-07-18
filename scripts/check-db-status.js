@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 
 async function checkDatabaseStatus() {
@@ -5,7 +6,13 @@ async function checkDatabaseStatus() {
   
   let prisma;
   try {
-    prisma = new PrismaClient();
+    prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL,
+        },
+      },
+    });
     console.log('✅ Prisma Client criado com sucesso');
     
     // Testar conexão
@@ -37,51 +44,25 @@ async function checkDatabaseStatus() {
     
     // Verificar variáveis de ambiente
     console.log('\n🌍 Verificando variáveis de ambiente...');
-    const envVars = [
-      'GATEIO_API_KEY',
-      'MEXC_API_KEY', 
-      'BINANCE_API_KEY',
-      'BYBIT_API_KEY',
-      'BITGET_API_KEY'
-    ];
+    console.log(`  - DATABASE_URL: ✅ ${process.env.DATABASE_URL ? 'Definida' : '❌ Não definida'}`);
+    console.log(`  - NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     
-    envVars.forEach(varName => {
-      const value = process.env[varName];
-      if (value) {
-        console.log(`  - ${varName}: ✅ Definida (${value.substring(0, 8)}...)`);
-      } else {
-        console.log(`  - ${varName}: ❌ Não definida`);
-      }
-    });
+    console.log('\n📡 URLs de WebSocket (dados públicos):');
+    console.log('  - Gate.io: wss://api.gateio.ws/ws/v4/');
+    console.log('  - MEXC: wss://wbs.mexc.com/ws');
     
   } catch (error) {
     console.error('❌ Erro ao conectar com banco de dados:', error.message);
     
     // Verificar variáveis de ambiente como fallback
     console.log('\n🌍 Verificando variáveis de ambiente (fallback)...');
-    const envVars = [
-      'GATEIO_API_KEY',
-      'MEXC_API_KEY', 
-      'BINANCE_API_KEY',
-      'BYBIT_API_KEY',
-      'BITGET_API_KEY'
-    ];
+    console.log(`  - DATABASE_URL: ${process.env.DATABASE_URL ? '✅ Definida' : '❌ Não definida'}`);
+    console.log(`  - NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     
-    let hasEnvKeys = false;
-    envVars.forEach(varName => {
-      const value = process.env[varName];
-      if (value) {
-        console.log(`  - ${varName}: ✅ Definida (${value.substring(0, 8)}...)`);
-        hasEnvKeys = true;
-      } else {
-        console.log(`  - ${varName}: ❌ Não definida`);
-      }
-    });
-    
-    if (hasEnvKeys) {
-      console.log('\n⚠️  Sistema usando variáveis de ambiente como fallback (banco inacessível)');
+    if (process.env.DATABASE_URL) {
+      console.log('\n⚠️  DATABASE_URL configurada, mas banco inacessível');
     } else {
-      console.log('\n❌ Nenhuma fonte de configuração disponível');
+      console.log('\n❌ DATABASE_URL não configurada');
     }
   } finally {
     if (prisma) {

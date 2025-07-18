@@ -1,24 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import dbConnection from '@/lib/db-connection';
 
 // GET - Listar todos os saldos manuais
 export async function GET() {
   try {
-    const balances = await prisma.manualBalance.findMany({
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
+    const balances = await dbConnection.getManualBalances();
     return NextResponse.json(balances);
   } catch (error) {
-    console.error('Erro ao buscar saldos manuais:', error);
-    return NextResponse.json(
-      { error: 'Erro interno do servidor' },
-      { status: 500 }
-    );
+    console.error('[API] Erro ao buscar saldos manuais:', error);
+    return NextResponse.json([]);
   }
 }
 
@@ -43,19 +33,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Criar o saldo manual
-    const balance = await prisma.manualBalance.create({
-      data: {
-        name,
-        amount,
-        currency: currency || 'USDT',
-        description: description || null
-      }
-    });
-
-    return NextResponse.json(balance, { status: 201 });
+    // Criar o saldo manual usando conexão direta
+    const query = `
+      INSERT INTO "ManualBalance" (id, name, amount, currency, description, "createdAt", "updatedAt")
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `;
+    
+    const id = `mb_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date();
+    
+    const params = [
+      id,
+      name,
+      amount,
+      currency || 'USDT',
+      description || null,
+      now,
+      now
+    ];
+    
+    const result = await dbConnection.executeQuery(query, params);
+    return NextResponse.json(result[0], { status: 201 });
   } catch (error) {
-    console.error('Erro ao criar saldo manual:', error);
+    console.error('[API] Erro ao criar saldo manual:', error);
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }

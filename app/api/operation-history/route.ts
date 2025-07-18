@@ -1,25 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-let prisma: PrismaClient | null = null;
-
-try {
-  prisma = new PrismaClient();
-  console.log('✅ Prisma Client inicializado com sucesso');
-} catch (error) {
-  console.error('❌ Erro ao conectar com o banco:', error);
-}
+import dbConnection from '@/lib/db-connection';
 
 // GET - Buscar histórico de operações com filtros
 export async function GET(req: NextRequest) {
   try {
     console.log('📡 GET /api/operation-history - Iniciando busca...');
     
-    if (!prisma) {
-      console.error('❌ Prisma Client não disponível');
-      return NextResponse.json({ error: 'Banco de dados não disponível' }, { status: 500 });
-    }
-
     const { searchParams } = new URL(req.url);
     const filter = searchParams.get('filter') || 'all'; // all, 24h, day, range
     const startDate = searchParams.get('startDate');
@@ -28,103 +14,72 @@ export async function GET(req: NextRequest) {
 
     console.log('🔍 Parâmetros da busca:', { filter, startDate, endDate, symbol });
 
-    let whereCondition: any = {};
-
-    // Filtro por símbolo
-    if (symbol) {
-      whereCondition.symbol = symbol;
-    }
-
-    // Filtros de data (só aplicar se não for 'all')
-    if (filter !== 'all') {
-      const now = new Date();
-      switch (filter) {
-        case '24h':
-          const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          whereCondition.finalizedAt = {
-            gte: twentyFourHoursAgo
-          };
-          console.log('⏰ Filtro 24h - desde:', twentyFourHoursAgo.toISOString());
-          break;
-        case 'day':
-          if (startDate) {
-            const dayStart = new Date(startDate);
-            dayStart.setHours(0, 0, 0, 0);
-            const dayEnd = new Date(startDate);
-            dayEnd.setHours(23, 59, 59, 999);
-            whereCondition.finalizedAt = {
-              gte: dayStart,
-              lte: dayEnd
-            };
-            console.log('⏰ Filtro day - período:', dayStart.toISOString(), 'até', dayEnd.toISOString());
-          }
-          break;
-        case 'range':
-          if (startDate && endDate) {
-            whereCondition.finalizedAt = {
-              gte: new Date(startDate),
-              lte: new Date(endDate)
-            };
-            console.log('⏰ Filtro range - período:', startDate, 'até', endDate);
-          }
-          break;
+    // Tentar buscar do banco usando conexão direta
+    try {
+      console.log('🗄️ Executando consulta no banco de dados...');
+      
+      // Primeiro, vamos contar quantos registros existem no total
+      const totalCount = await dbConnection.getOperationHistoryCount();
+      console.log('📊 Total de operações no banco:', totalCount);
+      
+      // Buscar operações
+      const operations = await dbConnection.getOperationHistory(100);
+      console.log('✅ Operações encontradas:', operations.length);
+      
+      // Aplicar filtros se necessário
+      let filteredOperations = operations;
+      
+      if (symbol) {
+        filteredOperations = operations.filter((op: any) => op.symbol === symbol);
       }
-    } else {
-      console.log('📋 Buscando todas as operações (sem filtro de data)');
-    }
-
-    console.log('🔍 Condição WHERE:', JSON.stringify(whereCondition, null, 2));
-
-    // Tentar buscar do banco se disponível
-    if (prisma) {
-      try {
-        console.log('🗄️ Executando consulta no banco de dados...');
-        
-        // Primeiro, vamos contar quantos registros existem no total
-        const totalCount = await (prisma as any).operationHistory.count();
-        console.log('📊 Total de operações no banco:', totalCount);
-        
-        // Buscar todas as operações (sem filtro) para debug
-        const allOperations = await (prisma as any).operationHistory.findMany({
-          orderBy: { finalizedAt: 'desc' },
-          take: 5 // Apenas as 5 mais recentes para debug
-        });
-        console.log('📋 Últimas 5 operações (sem filtro):', allOperations.map((op: any) => ({
-          id: op.id,
-          symbol: op.symbol,
-          finalizedAt: op.finalizedAt,
-          profitLossUsd: op.profitLossUsd
-        })));
-        
-        // Agora buscar com o filtro aplicado
-        const operations = await (prisma as any).operationHistory.findMany({
-          where: whereCondition,
-          orderBy: { finalizedAt: 'desc' },
-          take: 100 // Limita a 100 registros
-        });
-        
-        console.log('✅ Operações encontradas com filtro:', operations.length);
-        console.log('📋 Operações:', operations.map((op: any) => ({
-          id: op.id,
-          symbol: op.symbol,
-          finalizedAt: op.finalizedAt,
-          profitLossUsd: op.profitLossUsd
-        })));
-        
-        return NextResponse.json(operations);
-      } catch (dbError: any) {
-        console.error('❌ Erro ao buscar do banco:', dbError);
-        console.error('❌ Stack trace:', dbError.stack);
-        // Continua com fallback
+      
+      if (filter !== 'all') {
+        const now = new Date();
+        switch (filter) {
+          case '24h':
+            const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            filteredOperations = operations.filter((op: any) => 
+              new Date(op.finalizedAt) >= twentyFourHoursAgo
+            );
+            break;
+          case 'day':
+            if (startDate) {
+              const dayStart = new Date(startDate);
+              dayStart.setHours(0, 0, 0, 0);
+              const dayEnd = new Date(startDate);
+              dayEnd.setHours(23, 59, 59, 999);
+              filteredOperations = operations.filter((op: any) => {
+                const opDate = new Date(op.finalizedAt);
+                return opDate >= dayStart && opDate <= dayEnd;
+              });
+            }
+            break;
+          case 'range':
+            if (startDate && endDate) {
+              const start = new Date(startDate);
+              const end = new Date(endDate);
+              filteredOperations = operations.filter((op: any) => {
+                const opDate = new Date(op.finalizedAt);
+                return opDate >= start && opDate <= end;
+              });
+            }
+            break;
+        }
       }
+      
+      console.log('📋 Operações filtradas:', filteredOperations.length);
+      return NextResponse.json(filteredOperations);
+      
+    } catch (dbError) {
+      console.error('[API] Erro ao buscar do banco:', dbError);
+      // Continua com fallback
     }
 
     // Fallback: retornar array vazio por enquanto
     console.log('📝 Usando fallback - retornando histórico vazio');
     return NextResponse.json([]);
   } catch (error) {
-    console.error('❌ Erro ao buscar histórico:', error);
-    console.error('❌ Stack trace:', error.stack);
+    console.error('[API] Erro ao buscar histórico:', error);
     return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
   }
 }
@@ -172,32 +127,39 @@ export async function POST(req: NextRequest) {
       finalizedAt: new Date().toISOString()
     };
 
-    // Tentar salvar no banco de dados se disponível
-    if (prisma) {
-      try {
-        const dbOperation = await (prisma as any).operationHistory.create({
-          data: {
-            symbol,
-            quantity,
-            spotEntryPrice,
-            futuresEntryPrice,
-            spotExitPrice,
-            futuresExitPrice,
-            spotExchange,
-            futuresExchange,
-            profitLossUsd,
-            profitLossPercent,
-            createdAt: createdAt ? new Date(createdAt) : new Date(),
-            finalizedAt: new Date()
-          }
-        });
-        console.log('✅ Salvo no banco de dados:', dbOperation);
-        return NextResponse.json(dbOperation);
-      } catch (dbError: any) {
-        console.error('❌ Erro no banco, usando fallback:', dbError);
-        console.error('❌ Stack trace:', dbError.stack);
-        // Continua com fallback
-      }
+    // Tentar salvar no banco de dados usando conexão direta
+    try {
+      const query = `
+        INSERT INTO "OperationHistory" (
+          id, symbol, quantity, "spotEntryPrice", "futuresEntryPrice", 
+          "spotExitPrice", "futuresExitPrice", "spotExchange", "futuresExchange", 
+          "profitLossUsd", "profitLossPercent", "createdAt", "finalizedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        RETURNING *
+      `;
+      
+      const params = [
+        operation.id,
+        symbol,
+        quantity,
+        spotEntryPrice,
+        futuresEntryPrice,
+        spotExitPrice,
+        futuresExitPrice,
+        spotExchange,
+        futuresExchange,
+        profitLossUsd || 0,
+        profitLossPercent || 0,
+        createdAt ? new Date(createdAt) : new Date(),
+        new Date()
+      ];
+      
+      const result = await dbConnection.executeQuery(query, params);
+      console.log('✅ Salvo no banco de dados:', result[0]);
+      return NextResponse.json(result[0]);
+    } catch (dbError) {
+      console.error('[API] Erro no banco, usando fallback:', dbError);
+      // Continua com fallback
     }
 
     // Fallback: salvar em arquivo temporário ou apenas retornar sucesso
@@ -205,9 +167,8 @@ export async function POST(req: NextRequest) {
     
     return NextResponse.json(operation);
   } catch (error) {
-    console.error('❌ Erro ao criar registro no histórico:', error);
-    console.error('❌ Stack trace:', error.stack);
-    return NextResponse.json({ error: 'Erro interno do servidor', details: error instanceof Error ? error.message : 'Erro desconhecido' }, { status: 500 });
+    console.error('[API] Erro ao criar registro no histórico:', error);
+    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
   }
 }
 
@@ -224,20 +185,23 @@ export async function DELETE(req: NextRequest) {
     console.log('🗑️ Excluindo operação:', operationId);
 
     // Tentar excluir do banco de dados se disponível
-    if (prisma) {
+    if (dbConnection) {
       try {
-        const deletedOperation = await (prisma as any).operationHistory.delete({
-          where: { id: operationId }
-        });
-        console.log('✅ Operação excluída do banco:', deletedOperation);
-        return NextResponse.json({ success: true, deletedOperation });
-      } catch (dbError: any) {
-        if (dbError.code === 'P2025') {
+        const query = `
+          DELETE FROM "OperationHistory" WHERE id = $1
+          RETURNING *
+        `;
+        const params = [operationId];
+        const result = await dbConnection.executeQuery(query, params);
+        console.log('✅ Operação excluída do banco:', result[0]);
+        return NextResponse.json({ success: true, deletedOperation: result[0] });
+      } catch (dbError) {
+        if (dbError instanceof Error && 'code' in dbError && dbError.code === 'P2025') {
           // Record not found
-          console.log('⚠️ Operação não encontrada no banco:', operationId);
+          console.log('[API] Operação não encontrada no banco:', operationId);
           return NextResponse.json({ error: 'Operação não encontrada' }, { status: 404 });
         }
-        console.error('❌ Erro no banco ao excluir:', dbError);
+        console.error('[API] Erro no banco ao excluir:', dbError);
         return NextResponse.json({ error: 'Erro ao excluir do banco de dados' }, { status: 500 });
       }
     }
@@ -246,7 +210,7 @@ export async function DELETE(req: NextRequest) {
     console.log('📝 Usando fallback - exclusão simulada:', operationId);
     return NextResponse.json({ success: true, message: 'Operação excluída (fallback)' });
   } catch (error) {
-    console.error('❌ Erro ao excluir operação:', error);
+    console.error('[API] Erro ao excluir operação:', error);
     return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
   }
 } 

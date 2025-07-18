@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 30;
 
 // Cache em memória para melhorar performance
 const initDataCache = new Map();
-const CACHE_DURATION = 60 * 1000; // 1 minuto (aumentar cache)
+const CACHE_DURATION = 60 * 1000; // 1 minuto
 
 export async function GET(req: NextRequest) {
   console.log('[API] GET /api/init-data - Iniciando...');
@@ -25,55 +27,60 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(cached.data);
     }
 
-        // Forçar uso do banco real
+    // Forçar uso do banco real
     console.log('[API] Tentando conectar com o banco de dados...');
 
     if (!prisma) {
       throw new Error('Prisma client não disponível');
     }
 
-    // Timeout mais agressivo para performance
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Timeout')), 2000);
+    console.log('[API] Iniciando consultas ao banco...');
+    const startTime = Date.now();
+
+    // Buscar dados em paralelo - REMOVIDO TIMEOUT
+    console.log('[API] Iniciando consulta de posições...');
+    const positions = await prisma.position.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        symbol: true,
+        quantity: true,
+        spotEntry: true,
+        futuresEntry: true,
+        spotExchange: true,
+        futuresExchange: true,
+        isSimulated: true,
+        createdAt: true,
+        updatedAt: true
+      }
     });
+    console.log('[API] Posições carregadas:', positions.length);
 
-    // Buscar dados em paralelo
-    const dataPromise = Promise.all([
-      // Buscar posições (pode estar vazio)
-      prisma.position.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        select: {
-          id: true,
-          symbol: true,
-          quantity: true,
-          spotEntry: true,
-          futuresEntry: true,
-          spotExchange: true,
-          futuresExchange: true,
-          isSimulated: true,
-          createdAt: true,
-          updatedAt: true
+    console.log('[API] Iniciando consulta de spreads...');
+    const spreadsRaw = await prisma.spreadHistory.findMany({
+      where: {
+        timestamp: {
+          gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
         }
-      }),
-      // Buscar spreads das últimas 24h - SEM LIMITE para garantir dados completos
-      prisma.spreadHistory.findMany({
-        where: {
-          timestamp: {
-            gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
-          }
-        },
-        select: {
-          symbol: true,
-          spread: true,
-          exchangeBuy: true,
-          exchangeSell: true
-        }
-        // Removido take: 500 para garantir dados completos
-      })
-    ]);
+      },
+      select: {
+        symbol: true,
+        spread: true,
+        exchangeBuy: true,
+        exchangeSell: true
+      },
+      take: 10000, // Limitar a 10.000 registros para evitar timeout
+      orderBy: {
+        timestamp: 'desc'
+      }
+    });
+    console.log('[API] Spreads carregados:', spreadsRaw.length);
 
-    const [positions, spreadsRaw] = await Promise.race([dataPromise, timeoutPromise]) as [any[], any[]];
+    const endTime = Date.now();
+    console.log(`[API] Consultas concluídas em ${endTime - startTime}ms`);
+    console.log(`[API] Posições encontradas: ${positions.length}`);
+    console.log(`[API] Spreads encontrados: ${spreadsRaw.length}`);
 
     // Processar posições
     const openPositions: any[] = [];
@@ -107,6 +114,8 @@ export async function GET(req: NextRequest) {
     const spreadsData: any = {};
     const spreadsBySymbol: any = {};
     
+    console.log('[API] Processando spreads...');
+    
     // Agrupar spreads por símbolo
     spreadsRaw.forEach((spread: any) => {
       const symbol = spread.symbol.replace('/', '_');
@@ -115,6 +124,8 @@ export async function GET(req: NextRequest) {
       }
       spreadsBySymbol[symbol].push(spread);
     });
+    
+    console.log(`[API] Símbolos únicos encontrados: ${Object.keys(spreadsBySymbol).length}`);
     
     // Calcular máximos e mínimos por símbolo
     Object.entries(spreadsBySymbol).forEach(([symbol, spreads]: [string, any]) => {
