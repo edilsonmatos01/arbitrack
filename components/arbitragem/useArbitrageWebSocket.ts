@@ -196,6 +196,8 @@ export function useArbitrageWebSocket(enabled = true) {
           updateOpportunities(message);
         }
         else if (message.type === 'opportunity') {
+          console.log('[WS Hook] 📨 Mensagem opportunity recebida:', message);
+          
           // Converter mensagem do novo formato para o formato esperado
           const arbitrageMessage: ArbitrageOpportunity = {
             type: 'arbitrage',
@@ -214,6 +216,8 @@ export function useArbitrageWebSocket(enabled = true) {
             arbitrageType: message.direction,
             timestamp: new Date(message.timestamp).getTime()
           };
+          
+          console.log('[WS Hook] ✅ Oportunidade convertida:', arbitrageMessage);
           updateOpportunities(arbitrageMessage);
         }
         else if (message.type === 'price-update') {
