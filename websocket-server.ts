@@ -8,8 +8,8 @@ import { MarketPrices, ArbitrageOpportunity, PriceUpdate, CustomWebSocket } from
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const PORT = parseInt(process.env.PORT || '8080', 10);
-console.log(`[CONFIG] Iniciando servidor na porta ${PORT}`);
+const PORT = parseInt(process.env.WEBSOCKET_PORT || '8080', 10);
+console.log(`[CONFIG] Iniciando servidor WebSocket na porta ${PORT}`);
 
 const MIN_PROFIT_PERCENTAGE = 0.05; // 0.05% para detectar mais oportunidades
 
