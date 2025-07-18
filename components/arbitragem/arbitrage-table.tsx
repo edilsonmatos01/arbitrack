@@ -11,7 +11,7 @@ import { OperationHistoryStorage } from '@/lib/operation-history-storage';
 import ExchangeBalances from './ExchangeBalances';
 import ConfirmOrderModal from './ConfirmOrderModal';
 import { useInitDataOptimized } from './useInitDataOptimized';
-import { MONITORED_PAIRS, getFormattedPairs } from '@/lib/predefined-pairs';
+import { getMonitoredPairs } from '@/lib/predefined-pairs';
 
 const EXCHANGES = [
   { value: "gateio", label: "Gate.io" },
@@ -19,7 +19,7 @@ const EXCHANGES = [
 ];
 
 // Lista pré-definida de pares (substitui carregamento dinâmico)
-const DEFAULT_PAIRS = getFormattedPairs('slash');
+const DEFAULT_PAIRS = getMonitoredPairs().map(pair => pair.replace('_', '/'));
 
 // Lista fixa para Big Arb com os pares especificados
 const BIG_ARB_PAIRS = [
