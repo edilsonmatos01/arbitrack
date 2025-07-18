@@ -17,35 +17,6 @@ services:
   env: node
   plan: free
   buildCommand: npm install && npm run build
-  buildFilter:
-    paths:
-    - app/**
-    - components/**
-    - lib/**
-    - public/**
-    - package.json
-    - next.config.js
-    - tsconfig.json
-    - prisma/**
-    - middleware.ts
-    - tailwind.config.ts
-    - postcss.config.mjs
-    - babel.config.js
-    - .babelrc
-    - .eslintrc.js
-    - .eslintrc.json
-    - eslint.config.mjs
-    - .gitattributes
-    - .gitignore
-    - .npmrc
-    - next-env.d.ts
-    - README.md
-    - render.yaml
-    - tsconfig.build.json
-    - tsconfig.prisma.json
-    - tsconfig.scripts.json
-    - tsconfig.server.json
-    - tsconfig.tsbuildinfo
   startCommand: npm start
   envVars:
     - key: DATABASE_URL
