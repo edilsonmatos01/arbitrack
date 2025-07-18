@@ -36,10 +36,10 @@ async function testInsert() {
     
     console.log('📝 Inserindo dados de teste...');
     const result = await client.query(`
-      INSERT INTO "SpreadHistory" (symbol, "exchangeBuy", "exchangeSell", direction, spread, "spotPrice", "futuresPrice", "timestamp")
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-      RETURNING id, symbol, spread, "timestamp"
-    `, [testData.symbol, testData.exchangeBuy, testData.exchangeSell, testData.direction, testData.spread, testData.spotPrice, testData.futuresPrice]);
+      INSERT INTO "SpreadHistory" (id, symbol, "exchangeBuy", "exchangeSell", direction, spread, "spotPrice", "futuresPrice", "timestamp")
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      RETURNING symbol, spread, "timestamp"
+    `, [`test_${Date.now()}`, testData.symbol, testData.exchangeBuy, testData.exchangeSell, testData.direction, testData.spread, testData.spotPrice, testData.futuresPrice]);
     
     console.log('✅ Dados inseridos com sucesso!');
     console.log('📋 Registro inserido:', result.rows[0]);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { executeQuery } from '@/lib/db-connection';
 
 // Configurações para evitar problemas durante o build
 export const dynamic = 'force-dynamic';
@@ -27,30 +27,6 @@ export async function GET(req: NextRequest) {
     const userId = searchParams.get('user_id') || 'edilsonmatos';
 
     console.log('[API] Parâmetros:', { userId });
-    console.log('[API] Prisma disponível:', !!prisma);
-
-    if (!prisma) {
-      console.warn('[API] Prisma client não disponível, usando dados mockados');
-      // Retornar dados mockados em vez de falhar
-      const mockData = {
-        positions: {
-          open: [],
-          closed: []
-        },
-        spreads: {
-          data: {
-            'ERA_USDT': { spMax: 2.5, spMin: -0.8, crosses: 15, exchanges: ['gateio_mexc'] },
-            'HOLD_USDT': { spMax: 1.8, spMin: -1.2, crosses: 12, exchanges: ['gateio_mexc'] },
-            'TOMI_USDT': { spMax: 3.2, spMin: -0.5, crosses: 8, exchanges: ['gateio_mexc'] }
-          }
-        },
-        pairs: {
-          gateio: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'],
-          mexc: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT']
-        }
-      };
-      return NextResponse.json(mockData);
-    }
 
     console.log('[API] Usando lista fixa de símbolos...');
     
@@ -77,35 +53,39 @@ export async function GET(req: NextRequest) {
     try {
       console.log('[API] Buscando dados agregados para todos os símbolos...');
       
-      // Usar uma consulta mais eficiente com groupBy
+      // Usar uma consulta SQL otimizada com pg
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const symbolsList = symbols.map(s => `'${s}'`).join(',');
       
-      const aggregatedData = await prisma.spreadHistory.groupBy({
-        by: ['symbol'],
-        where: {
-          symbol: { in: symbols },
-          timestamp: { gte: twentyFourHoursAgo }
-        },
-        _max: { spread: true },
-        _min: { spread: true },
-        _count: { id: true }
-      });
+      const query = `
+        SELECT 
+          symbol,
+          MAX(spread) as sp_max,
+          MIN(spread) as sp_min,
+          COUNT(*) as crosses
+        FROM "SpreadHistory" 
+        WHERE symbol IN (${symbolsList})
+        AND timestamp >= $1
+        GROUP BY symbol
+      `;
 
-      console.log(`[API] Dados agregados encontrados para ${aggregatedData.length} símbolos`);
+      const result = await executeQuery<{ symbol: string; sp_max: string; sp_min: string; crosses: string }>(query, [twentyFourHoursAgo]);
+
+      console.log(`[API] Dados agregados encontrados para ${result.length} símbolos`);
 
       // Processar os resultados
-      for (const item of aggregatedData) {
-        const symbolKey = item.symbol.replace('/', '_');
+      for (const row of result) {
+        const symbolKey = row.symbol.replace('/', '_');
         spreadsData[symbolKey] = {
-          spMax: item._max.spread || 0,
-          spMin: item._min.spread || 0,
-          crosses: item._count.id || 0,
+          spMax: parseFloat(row.sp_max) || 0,
+          spMin: parseFloat(row.sp_min) || 0,
+          crosses: parseInt(row.crosses) || 0,
           exchanges: ['gateio_mexc'] // Simplificado
         };
       }
 
       // Adicionar símbolos que não têm dados
-      const foundSymbols = aggregatedData.map(item => item.symbol);
+      const foundSymbols = result.map(row => row.symbol);
       const missingSymbols = symbols.filter(symbol => !foundSymbols.includes(symbol));
       
       for (const symbol of missingSymbols) {
