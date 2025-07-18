@@ -145,10 +145,6 @@ services:
       fromDatabase:
         name: arbitragem-db
         property: connectionString
-    - key: PORT
-      value: 10000
-    - key: HOSTNAME
-      value: 0.0.0.0
     - key: NODE_ENV
       value: production
     - key: TZ
