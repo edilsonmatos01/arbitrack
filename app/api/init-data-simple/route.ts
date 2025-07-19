@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeQuery } from '@/lib/db-connection';
+import { PrismaClient } from '@prisma/client';
 
 // Configurações para evitar problemas durante o build
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
+
+// Cache global para melhorar performance
+let cache: { data: any; timestamp: number } | null = null;
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutos (aumentado drasticamente)
 
 export async function GET(req: NextRequest) {
   // Verificar se estamos em modo de build
@@ -20,118 +24,148 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  console.log('[API] GET /api/init-data-simple - Iniciando...');
-  
-  try {
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('user_id') || 'edilsonmatos';
-
-    console.log('[API] Parâmetros:', { userId });
-
-    console.log('[API] Usando lista fixa de símbolos...');
+      // Verificar cache
+    if (cache && (Date.now() - cache.timestamp) < CACHE_TTL) {
+      console.log('[API] Retornando dados do cache');
+      return NextResponse.json(cache.data);
+    }
     
-    // Usar lista fixa de símbolos que aparecem na tabela e são gravados pelo worker
-    const symbols = [
-      // Símbolos principais que o worker monitora
-      'BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'XRP_USDT', 'BNB_USDT',
-      // Símbolos adicionais que podem aparecer
-      'ADA_USDT', 'DOT_USDT', 'AVAX_USDT', 'MATIC_USDT', 'LINK_USDT',
-      'ATOM_USDT', 'LTC_USDT', 'BCH_USDT', 'ETC_USDT', 'FIL_USDT',
-      // Símbolos específicos da tabela
-      'ERA_USDT', 'HOLD_USDT', 'TOMI_USDT', 'LAVA_USDT', 'PIN_USDT', 'DEVVE_USDT',
-      'WHITE_USDT', 'NAM_USDT', 'BOXCAT_USDT', 'VANRY_USDT', 'VR_USDT', 'KEKIUS_USDT',
-      'POLS_USDT', 'MOONPIG_USDT', 'DEAI_USDT', 'SOLO_USDT', 'DOG_USDT', 'PRIME_USDT',
-      'FARTCOIN_USDT', 'FWOG_USDT', 'USELESS_USDT', 'BLZ_USDT', 'AIN_USDT', 'TRB_USDT',
-      'CHILLGUY_USDT', 'GNC_USDT', 'LAMBO_USDT', 'VELO_USDT', 'ZIG_USDT', 'QUBIC_USDT'
-    ];
-
-    console.log(`[API] Processando ${symbols.length} símbolos...`);
-
-    // Buscar dados de spread máximo para todos os símbolos de uma vez
-    const spreadsData: any = {};
+    console.log('[API] GET /api/init-data-simple - Iniciando...');
     
     try {
-      console.log('[API] Buscando dados agregados para todos os símbolos...');
+      const { searchParams } = new URL(req.url);
+      const userId = searchParams.get('user_id') || 'edilsonmatos';
+
+      console.log('[API] Parâmetros:', { userId });
+
+      console.log('[API] Usando lista otimizada de símbolos...');
       
-      // Usar uma consulta SQL otimizada com pg
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const symbolsList = symbols.map(s => `'${s}'`).join(',');
+      // Lista reduzida apenas com símbolos que aparecem na tabela
+      const symbols = [
+        // Símbolos que aparecem na tabela atual
+        'WHITE_USDT', 'LUCE_USDT', 'VR_USDT', 'RBNT_USDT', 'GROK_USDT',
+        // Símbolos principais
+        'BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'XRP_USDT', 'BNB_USDT',
+        // Símbolos adicionais comuns
+        'ADA_USDT', 'DOT_USDT', 'AVAX_USDT', 'MATIC_USDT', 'LINK_USDT',
+        'ATOM_USDT', 'LTC_USDT', 'BCH_USDT', 'BLZ_USDT', 'AIN_USDT'
+      ];
+
+      console.log(`[API] Processando ${symbols.length} símbolos...`);
+
+      // Buscar dados de spread máximo para todos os símbolos de uma vez
+      const spreadsData: any = {};
       
-      const query = `
-        SELECT 
-          symbol,
-          MAX(spread) as sp_max,
-          MIN(spread) as sp_min,
-          COUNT(*) as crosses
-        FROM "SpreadHistory" 
-        WHERE symbol IN (${symbolsList})
-        AND timestamp >= $1
-        GROUP BY symbol
-      `;
+      try {
+        console.log('[API] Buscando dados reais do banco...');
+        
+        // Usar Prisma ORM para buscar dados
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const prisma = new PrismaClient();
+        
+        // OTIMIZAÇÃO: Consulta mais eficiente
+        console.log('[API] Iniciando consulta otimizada...');
+        const queryStart = Date.now();
+        
+        const allStats = await prisma.spreadHistory.groupBy({
+          by: ['symbol'],
+          where: {
+            symbol: {
+              in: symbols
+            },
+            timestamp: {
+              gte: twentyFourHoursAgo
+            }
+          },
+          _max: {
+            spread: true
+          },
+          _min: {
+            spread: true
+          },
+          _count: {
+            id: true
+          }
+        });
+        
+        const queryEnd = Date.now();
+        console.log(`[API] Consulta concluída em ${queryEnd - queryStart}ms`);
+        
+        // Processar resultados
+        for (const stat of allStats) {
+          const symbolKey = stat.symbol.replace('/', '_');
+          spreadsData[symbolKey] = {
+            spMax: stat._max.spread || 0,
+            spMin: stat._min.spread || 0,
+            crosses: stat._count.id || 0,
+            exchanges: ['gateio_mexc']
+          };
+        }
+        
+        // Adicionar símbolos sem dados
+        console.log(`[API] Processando ${allStats.length} resultados da consulta...`);
+        
+        for (const symbol of symbols) {
+          const symbolKey = symbol.replace('/', '_');
+          if (!spreadsData[symbolKey]) {
+            console.log(`[API] ⚠️  Símbolo ${symbol} não encontrado na consulta, criando dados vazios`);
+            spreadsData[symbolKey] = {
+              spMax: 0,
+              spMin: 0,
+              crosses: 0,
+              exchanges: ['gateio_mexc']
+            };
+          }
+        }
+        
+        console.log(`[API] Total de símbolos processados: ${Object.keys(spreadsData).length}`);
+        
+        await prisma.$disconnect();
+        console.log(`[API] Dados reais processados para ${Object.keys(spreadsData).length} símbolos`);
 
-      const result = await executeQuery<{ symbol: string; sp_max: string; sp_min: string; crosses: string }>(query, [twentyFourHoursAgo]);
-
-      console.log(`[API] Dados agregados encontrados para ${result.length} símbolos`);
-
-      // Processar os resultados
-      for (const row of result) {
-        const symbolKey = row.symbol.replace('/', '_');
-        spreadsData[symbolKey] = {
-          spMax: parseFloat(row.sp_max) || 0,
-          spMin: parseFloat(row.sp_min) || 0,
-          crosses: parseInt(row.crosses) || 0,
-          exchanges: ['gateio_mexc'] // Simplificado
-        };
+      } catch (error) {
+        console.error('[API] Erro ao buscar dados do banco:', error);
+        // Em caso de erro, criar dados vazios
+        for (const symbol of symbols) {
+          const symbolKey = symbol.replace('/', '_');
+          spreadsData[symbolKey] = {
+            spMax: 0,
+            spMin: 0,
+            crosses: 0,
+            exchanges: ['gateio_mexc']
+          };
+        }
       }
 
-      // Adicionar símbolos que não têm dados
-      const foundSymbols = result.map(row => row.symbol);
-      const missingSymbols = symbols.filter(symbol => !foundSymbols.includes(symbol));
+      // Pares por exchange
+      const pairs = {
+        gateio: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'],
+        mexc: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'],
+        bitget: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT']
+      };
+
+      const responseData = {
+        positions: {
+          open: [],
+          closed: []
+        },
+        spreads: {
+          data: spreadsData
+        },
+        pairs
+      };
+
+      console.log(`[API] Dados reais carregados: ${Object.keys(spreadsData).length} spreads`);
       
-      for (const symbol of missingSymbols) {
-        const symbolKey = symbol.replace('/', '_');
-        spreadsData[symbolKey] = {
-          spMax: 0,
-          spMin: 0,
-          crosses: 0,
-          exchanges: ['gateio_mexc']
-        };
-      }
+      // Salvar no cache
+      cache = {
+        data: responseData,
+        timestamp: Date.now()
+      };
+      
+      return NextResponse.json(responseData);
 
-    } catch (error) {
-      console.error('[API] Erro ao buscar dados agregados:', error);
-      // Em caso de erro, criar dados vazios
-      for (const symbol of symbols) {
-        const symbolKey = symbol.replace('/', '_');
-        spreadsData[symbolKey] = {
-          spMax: 0,
-          spMin: 0,
-          crosses: 0,
-          exchanges: ['gateio_mexc']
-        };
-      }
-    }
 
-    // Pares por exchange (mockados por enquanto)
-    const pairs = {
-      gateio: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'],
-      mexc: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'],
-      bitget: ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT']
-    };
-
-    const responseData = {
-      positions: {
-        open: [],
-        closed: []
-      },
-      spreads: {
-        data: spreadsData
-      },
-      pairs
-    };
-
-    console.log(`[API] Dados carregados: ${Object.keys(spreadsData).length} spreads`);
-    return NextResponse.json(responseData);
 
   } catch (error) {
     console.error('[API] Erro ao carregar dados:', error);

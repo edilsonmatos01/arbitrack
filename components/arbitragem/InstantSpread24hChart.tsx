@@ -1,218 +1,274 @@
-import React, { useState, useEffect, useCallback } from 'react';
+'use client';
+
+import { useEffect, useRef, useMemo } from 'react';
+import { Line } from 'react-chartjs-2';
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
   Tooltip,
-  ResponsiveContainer
-} from 'recharts';
-import { useChartCache } from '@/lib/chart-cache';
+  Legend,
+  Filler
+} from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
+
+interface ChartDataPoint {
+  timestamp: string;
+  spread_percentage: number; // Estrutura correta da API
+}
 
 interface InstantSpread24hChartProps {
   symbol: string;
-  initialData?: Array<{ timestamp: string; spread_percentage: number }>;
+  preloadedData: ChartDataPoint[];
 }
 
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: Array<{
-    value: number | null;
-    dataKey: string;
-    name: string;
-  }>;
-  label?: string;
-}
-
-function formatTimestampToLocal(iso: string) {
-  const date = new Date(iso);
-  return date.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).replace(', ', ' - ');
-}
-
-const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
-  if (active && payload && payload.length > 0) {
-    return (
-      <div className="p-3 bg-gray-800 border border-gray-700 rounded-md shadow-lg">
-        <p className="text-white font-semibold mb-2">{`Data: ${label}`}</p>
-        <p className="text-green-400">{`Spread (%): ${payload[0].value?.toFixed(2) ?? 'N/D'}`}</p>
-      </div>
-    );
-  }
-  return null;
-};
-
-// Skeleton loader otimizado
-function OptimizedSkeleton() {
-  return (
-    <div className="w-full h-[400px] bg-gray-900 rounded-lg border border-gray-800 p-4">
-      <div className="flex justify-between items-center mb-4">
-        <div className="h-6 bg-gray-700 rounded w-1/3 animate-pulse" />
-        <div className="h-4 bg-gray-700 rounded w-1/4 animate-pulse" />
-      </div>
-      <div className="w-full h-64 bg-gray-800 rounded animate-pulse" />
-    </div>
-  );
-}
-
-export default function InstantSpread24hChart({ symbol, initialData }: InstantSpread24hChartProps) {
-  const [data, setData] = useState<Array<{ timestamp: string; spread_percentage: number }>>(initialData || []);
-  const [loading, setLoading] = useState(!initialData || initialData.length === 0);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+export default function InstantSpread24hChart({ symbol, preloadedData }: InstantSpread24hChartProps) {
+  console.log('[InstantSpread24hChart] Componente renderizado para:', symbol);
+  console.log('[InstantSpread24hChart] Dados recebidos:', preloadedData);
   
-  const { fetchSpreadData, prefetchData } = useChartCache();
+  const chartRef = useRef<any>(null);
 
-  // Carregar dados com cache otimizado
-  const loadData = useCallback(async () => {
-    if (initialData && initialData.length > 0) {
-      setData(initialData);
-      setLastUpdate(new Date());
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
+  // Função para converter timestamp da API para Date - MOVIDA PARA CIMA
+  const parseTimestamp = (timestamp: string): Date => {
+    // Formato da API: "18/07 - 05:30"
+    const [datePart, timePart] = timestamp.split(' - ');
+    const [day, month] = datePart.split('/');
+    const [hour, minute] = timePart.split(':');
     
-    try {
-      const result = await fetchSpreadData(symbol);
-      
-      if (result.length > 0) {
-        setData(result);
-        setLastUpdate(new Date());
-      } else {
-        setError('Nenhum dado disponível');
-      }
-    } catch (err: any) {
-      // Log reduzido para melhor performance
-      setError(err.message || 'Erro ao carregar dados');
-      setData([]);
-    } finally {
-      setLoading(false);
+    // Criar data para o ano atual
+    const currentYear = new Date().getFullYear();
+    return new Date(currentYear, parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(minute));
+  };
+
+  // Processar dados para o gráfico
+  const chartData = useMemo(() => {
+    if (!preloadedData || preloadedData.length === 0) {
+      return {
+        labels: [],
+        datasets: []
+      };
     }
-  }, [symbol, initialData, fetchSpreadData]);
 
-  // Carregar dados iniciais
-  useEffect(() => {
-    if (!initialData || initialData.length === 0) {
-      loadData();
-    } else {
-      setData(initialData);
-      setLastUpdate(new Date());
-      setLoading(false);
-    }
-  }, [symbol, initialData]);
+    console.log('[InstantSpread24hChart] Dados recebidos:', preloadedData);
 
-  // Pré-carregar dados para atualizações futuras (apenas uma vez)
-  useEffect(() => {
-    prefetchData(symbol);
-  }, [symbol]);
+    // Ordenar dados por timestamp
+    const sortedData = [...preloadedData].sort((a, b) => {
+      // Converter timestamp para data válida
+      const dateA = parseTimestamp(a.timestamp);
+      const dateB = parseTimestamp(b.timestamp);
+      return dateA.getTime() - dateB.getTime();
+    });
 
-  // Atualizar dados a cada 10 minutos (reduzido para melhor performance)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!loading && (!initialData || initialData.length === 0)) {
-        loadData();
+    console.log('[InstantSpread24hChart] Dados ordenados:', sortedData);
+
+    // Preparar labels (horários)
+    const labels = sortedData.map(point => {
+      const date = parseTimestamp(point.timestamp);
+      return date.toLocaleTimeString('pt-BR', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    });
+
+    // Preparar dados de spread usando a estrutura correta
+    const spreadData = sortedData.map(point => point.spread_percentage);
+
+    console.log('[InstantSpread24hChart] Labels:', labels);
+    console.log('[InstantSpread24hChart] Spread data:', spreadData);
+
+    // Calcular estatísticas
+    const maxSpread = Math.max(...spreadData);
+    const minSpread = Math.min(...spreadData);
+    const avgSpread = spreadData.reduce((a, b) => a + b, 0) / spreadData.length;
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Spread (%)',
+          data: spreadData,
+          borderColor: 'rgb(34, 197, 94)',
+          backgroundColor: 'rgba(34, 197, 94, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHoverBackgroundColor: 'rgb(34, 197, 94)',
+          pointHoverBorderColor: '#fff',
+          pointHoverBorderWidth: 2,
+        }
+      ],
+      stats: {
+        max: maxSpread,
+        min: minSpread,
+        avg: avgSpread,
+        count: spreadData.length
       }
-    }, 10 * 60 * 1000); // Aumentado de 5 para 10 minutos
-    
-    return () => clearInterval(interval);
-  }, [symbol, loading, initialData]);
+    };
+  }, [preloadedData]);
 
-  // Renderizar skeleton apenas se não houver dados iniciais
-  if (loading && (!initialData || initialData.length === 0)) {
-    return <OptimizedSkeleton />;
-  }
+  // Configurações do gráfico
+  const options = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false
+      },
+      tooltip: {
+        mode: 'index' as const,
+        intersect: false,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        titleColor: '#fff',
+        bodyColor: '#fff',
+        borderColor: 'rgb(34, 197, 94)',
+        borderWidth: 1,
+        callbacks: {
+          title: (context: any) => {
+            return `Horário: ${context[0].label}`;
+          },
+          label: (context: any) => {
+            return `Spread: ${context.parsed.y.toFixed(4)}%`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        display: true,
+        title: {
+          display: true,
+          text: 'Horário',
+          color: '#9ca3af'
+        },
+        grid: {
+          color: 'rgba(156, 163, 175, 0.1)'
+        },
+        ticks: {
+          color: '#9ca3af',
+          maxTicksLimit: 8
+        }
+      },
+      y: {
+        display: true,
+        title: {
+          display: true,
+          text: 'Spread (%)',
+          color: '#9ca3af'
+        },
+        grid: {
+          color: 'rgba(156, 163, 175, 0.1)'
+        },
+        ticks: {
+          color: '#9ca3af',
+          callback: (value: any) => `${value.toFixed(2)}%`
+        },
+        beginAtZero: true
+      }
+    },
+    interaction: {
+      mode: 'nearest' as const,
+      axis: 'x' as const,
+      intersect: false
+    },
+    elements: {
+      point: {
+        radius: 2,
+        hoverRadius: 4
+      }
+    }
+  }), []);
 
-  if (error) {
+  // Atualizar gráfico quando dados mudarem
+  useEffect(() => {
+    if (chartRef.current) {
+      chartRef.current.update();
+    }
+  }, [chartData]);
+
+  if (!preloadedData || preloadedData.length === 0) {
+    console.log('[InstantSpread24hChart] Nenhum dado disponível');
     return (
-      <div className="flex items-center justify-center h-[400px] bg-gray-900 rounded-lg border border-gray-800">
-        <div className="text-center text-red-400">
-          <div className="mb-2">⚠️ {error}</div>
-          <div className="text-sm text-gray-400">Verifique a API ou conexão</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-[400px] bg-gray-900 rounded-lg border border-gray-800">
+      <div className="flex items-center justify-center h-full">
         <div className="text-center text-gray-400">
-          <div className="mb-2">📊 Nenhum dado disponível</div>
-          <div className="text-sm">Aguarde a coleta de dados do spread</div>
+          <p>Nenhum dado disponível para {symbol}</p>
         </div>
       </div>
     );
   }
 
-  const minSpread = Math.min(...data.map(d => d.spread_percentage));
-  const maxSpread = Math.max(...data.map(d => d.spread_percentage));
-  const padding = (maxSpread - minSpread) * 0.1;
+  const stats = chartData.stats || { max: 0, min: 0, avg: 0, count: 0 };
+  
+  console.log('[InstantSpread24hChart] Renderizando gráfico com:', {
+    symbol,
+    dataPoints: preloadedData.length,
+    chartData,
+    stats
+  });
 
   return (
-    <div className="w-full h-[400px] bg-gray-900 rounded-lg border border-gray-800 p-4">
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-2">
-          <h3 className="text-lg font-semibold text-white">Histórico de Spread Máximo (24h) - {symbol}</h3>
-          {loading && (
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-          )}
-        </div>
-        {lastUpdate && (
-          <div className="text-right">
-            <div className="text-sm text-gray-400">
-              Atualizado: {lastUpdate.toLocaleString('pt-BR')}
-            </div>
-            <div className="text-xs text-gray-500">
-              {data.length} pontos coletados
-            </div>
+    <div className="h-full flex flex-col">
+      {/* Estatísticas */}
+      <div className="grid grid-cols-4 gap-4 mb-4 p-4 bg-gray-800 rounded-lg">
+        <div className="text-center">
+          <div className="text-xs text-gray-400">Spread Máximo</div>
+          <div className="text-lg font-bold text-green-400">
+            {stats.max.toFixed(2)}%
           </div>
-        )}
+        </div>
+        <div className="text-center">
+          <div className="text-xs text-gray-400">Spread Mínimo</div>
+          <div className="text-lg font-bold text-red-400">
+            {stats.min.toFixed(2)}%
+          </div>
+        </div>
+        <div className="text-center">
+          <div className="text-xs text-gray-400">Spread Médio</div>
+          <div className="text-lg font-bold text-blue-400">
+            {stats.avg.toFixed(2)}%
+          </div>
+        </div>
+        <div className="text-center">
+          <div className="text-xs text-gray-400">Total de Registros</div>
+          <div className="text-lg font-bold text-gray-300">
+            {stats.count}
+          </div>
+        </div>
       </div>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 60 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-          <XAxis
-            dataKey="timestamp"
-            stroke="#9CA3AF"
-            tick={{ fill: '#9CA3AF', fontSize: 11 }}
-            angle={-45}
-            textAnchor="end"
-            height={60}
-            interval={Math.max(0, Math.floor(data.length / 12))}
-            tickFormatter={(value) => {
-              if (typeof value === 'string' && value.includes(' - ')) {
-                return value.split(' - ')[1]; // Mostra só o horário
-              }
-              return value;
-            }}
+
+      {/* Gráfico */}
+      <div className="flex-1 min-h-0">
+        <div className="h-full w-full">
+          <Line 
+            ref={chartRef}
+            data={chartData}
+            options={options}
           />
-          <YAxis
-            stroke="#9CA3AF"
-            tick={{ fill: '#9CA3AF', fontSize: 11 }}
-            domain={[Math.max(0, minSpread - padding), maxSpread + padding]}
-            tickFormatter={(value) => `${value.toFixed(2)}%`}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <Line
-            type="monotone"
-            dataKey="spread_percentage"
-            stroke="#10B981"
-            strokeWidth={2}
-            dot={{ fill: '#10B981', strokeWidth: 2, r: 3 }}
-            activeDot={{ r: 5, stroke: '#10B981', strokeWidth: 2, fill: '#10B981' }}
-            connectNulls={true}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Informações */}
+      <div className="mt-4 p-3 bg-gray-800 rounded-lg text-xs text-gray-400">
+        <div className="flex justify-between">
+          <span>Símbolo: {symbol}</span>
+          <span>Período: Últimas 24 horas</span>
+          <span>Atualizado: {new Date().toLocaleTimeString('pt-BR')}</span>
+        </div>
+      </div>
     </div>
   );
 } 

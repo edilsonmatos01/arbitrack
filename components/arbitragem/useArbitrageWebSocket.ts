@@ -83,9 +83,9 @@ export function useArbitrageWebSocket(enabled = true) {
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(false);
   
-  // Otimizações de performance
-  const debouncer = useRef(new Debouncer(100));
-  const throttler = useRef(new Throttler(50));
+  // Otimizações de performance - ULTRA-RÁPIDAS
+  const debouncer = useRef(new Debouncer(20)); // Reduzido para 20ms
+  const throttler = useRef(new Throttler(5)); // Reduzido para 5ms
   const opportunitiesBuffer = useRef<ArbitrageOpportunity[]>([]);
   const pricesBuffer = useRef<LivePrices>({});
 
@@ -106,46 +106,32 @@ export function useArbitrageWebSocket(enabled = true) {
     }
   }, []);
 
-  // Função otimizada para atualizar oportunidades
+  // Função otimizada para atualizar oportunidades - ATUALIZAÇÃO ULTRA-RÁPIDA
   const updateOpportunities = useCallback((newOpportunity: ArbitrageOpportunity) => {
-    opportunitiesBuffer.current = opportunitiesBuffer.current.filter(p => 
-      p.baseSymbol !== newOpportunity.baseSymbol || 
-      p.arbitrageType !== newOpportunity.arbitrageType
-    );
-    opportunitiesBuffer.current.unshift(newOpportunity);
-    
-    // Manter apenas as 50 oportunidades mais recentes
-    if (opportunitiesBuffer.current.length > 50) {
-      opportunitiesBuffer.current = opportunitiesBuffer.current.slice(0, 50);
+    // Atualização IMEDIATA para TODAS as oportunidades
+    if (isMounted.current) {
+      safeSetOpportunities(prev => {
+        const filtered = prev.filter(p => 
+          p.baseSymbol !== newOpportunity.baseSymbol || 
+          p.arbitrageType !== newOpportunity.arbitrageType
+        );
+        return [newOpportunity, ...filtered].slice(0, 15); // Reduzido para 15
+      });
     }
-
-    // Debounce a atualização do estado
-    debouncer.current.debounce(() => {
-      if (isMounted.current) {
-        safeSetOpportunities([...opportunitiesBuffer.current]);
-      }
-    });
   }, [safeSetOpportunities]);
 
-  // Função otimizada para atualizar preços
+  // Função otimizada para atualizar preços - ATUALIZAÇÃO ULTRA-RÁPIDA
   const updateLivePrices = useCallback((symbol: string, marketType: string, bestAsk: number, bestBid: number) => {
-    if (!pricesBuffer.current[symbol]) {
-      pricesBuffer.current[symbol] = {};
+    // Atualização IMEDIATA para TODOS os pares
+    if (isMounted.current) {
+      setLivePrices(prev => ({
+        ...prev,
+        [symbol]: {
+          ...prev[symbol],
+          [marketType]: { bestAsk, bestBid }
+        }
+      }));
     }
-    pricesBuffer.current[symbol][marketType] = { bestAsk, bestBid };
-
-    // Throttle a atualização do estado
-    throttler.current.throttle(() => {
-      if (isMounted.current) {
-        setLivePrices(prev => ({
-          ...prev,
-          [symbol]: {
-            ...prev[symbol],
-            [marketType]: { bestAsk, bestBid }
-          }
-        }));
-      }
-    });
   }, []);
 
   const getWebSocketURL = useCallback(() => {
@@ -159,8 +145,8 @@ export function useArbitrageWebSocket(enabled = true) {
       if (process.env.NODE_ENV === 'development') {
         if (typeof window === 'undefined') return '';
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host;
-        const fallbackURL = `${protocol}//${host}`;
+        const host = window.location.hostname;
+        const fallbackURL = `${protocol}//${host}:10000`;
         console.log('[WS Hook] Usando URL de fallback para desenvolvimento:', fallbackURL);
         return fallbackURL;
       }
@@ -198,6 +184,13 @@ export function useArbitrageWebSocket(enabled = true) {
         else if (message.type === 'opportunity') {
           console.log('[WS Hook] 📨 Mensagem opportunity recebida:', message);
           
+          // CORREÇÃO FINAL: Mapear preços corretamente baseado na lógica de arbitragem
+          // Compra sempre no SPOT (preço mais baixo), Venda sempre no FUTURES (preço mais alto)
+          const buyPrice = message.spotPrice; // Sempre compra no spot
+          const sellPrice = message.futuresPrice; // Sempre venda no futures
+          const buyMarketType = 'spot'; // Compra sempre no spot
+          const sellMarketType = 'futures'; // Venda sempre no futures
+          
           // Converter mensagem do novo formato para o formato esperado
           const arbitrageMessage: ArbitrageOpportunity = {
             type: 'arbitrage',
@@ -205,13 +198,13 @@ export function useArbitrageWebSocket(enabled = true) {
             profitPercentage: message.spread,
             buyAt: {
               exchange: message.exchangeBuy,
-              price: message.spotPrice,
-              marketType: 'spot' as const
+              price: buyPrice,
+              marketType: buyMarketType
             },
             sellAt: {
               exchange: message.exchangeSell,
-              price: message.futuresPrice,
-              marketType: 'futures' as const
+              price: sellPrice,
+              marketType: sellMarketType
             },
             arbitrageType: message.direction,
             timestamp: new Date(message.timestamp).getTime()

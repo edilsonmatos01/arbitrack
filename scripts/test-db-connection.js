@@ -1,54 +1,43 @@
 const { PrismaClient } = require('@prisma/client');
 
 async function testConnection() {
+  console.log('🔍 Testando conexão com o banco...');
+  
   const prisma = new PrismaClient({
-    log: ['error', 'warn']
+    log: ['query', 'info', 'warn', 'error'],
   });
-
+  
   try {
-    console.log('Testando conexão com o banco de dados...');
-    
-    // Testar conexão básica
+    console.log('📡 Conectando...');
     await prisma.$connect();
-    console.log('✅ Conexão estabelecida com sucesso');
+    console.log('✅ Conectado!');
     
-    // Testar consulta simples
-    const count = await prisma.spreadHistory.count();
-    console.log(`✅ Total de registros na tabela: ${count}`);
+    // Testar uma query simples
+    console.log('📊 Testando query...');
+    const result = await prisma.$queryRaw`SELECT 1 as test`;
+    console.log('✅ Query funcionou:', result);
     
-    // Testar consulta com filtro de tempo
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentCount = await prisma.spreadHistory.count({
-      where: {
-        timestamp: {
-          gte: twentyFourHoursAgo,
-        },
-      }
-    });
-    console.log(`✅ Registros das últimas 24h: ${recentCount}`);
+    // Verificar se a tabela existe
+    console.log('📋 Verificando tabela SpreadHistory...');
+    const tableExists = await prisma.$queryRaw`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'SpreadHistory'
+      );
+    `;
+    console.log('✅ Tabela existe:', tableExists[0].exists);
     
-    // Testar spread máximo para um símbolo
-    const maxSpread = await prisma.spreadHistory.findFirst({
-      where: {
-        symbol: 'ERA_USDT',
-        timestamp: {
-          gte: twentyFourHoursAgo,
-        },
-      },
-      select: {
-        spread: true
-      },
-      orderBy: {
-        spread: 'desc'
-      }
-    });
-    
-    console.log(`✅ Spread máximo para ERA_USDT: ${maxSpread?.spread?.toFixed(2)}%`);
+    if (tableExists[0].exists) {
+      const count = await prisma.spreadHistory.count();
+      console.log(`📊 Total de registros: ${count}`);
+    }
     
   } catch (error) {
-    console.error('❌ Erro na conexão:', error);
+    console.error('❌ Erro:', error);
   } finally {
     await prisma.$disconnect();
+    console.log('🔌 Desconectado');
   }
 }
 

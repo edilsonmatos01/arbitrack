@@ -149,14 +149,15 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
 
   // Renderização condicional otimizada
   if (isLoading) {
-    return <span className="text-gray-500">Carregando...</span>;
+    return <span className="text-gray-400">Carregando...</span>;
   }
 
   if (error) {
-    return <span className="text-red-400">Erro: {error}</span>;
+    return <span className="text-gray-400">Erro</span>;
   }
 
-  if (maxSpread === 0) {
+  // Se não há dados ou spread é 0, mostrar N/D
+  if (!maxSpread || maxSpread === 0) {
     return (
       <div className="text-gray-400">
         <div>N/D</div>
@@ -223,7 +224,7 @@ export default function MaxSpreadCell({ symbol, currentSpread = 0, maxSpread24h 
               ) : (
                 <Suspense fallback={<ChartLoadingSpinner />}>
                   {chartType === 'spread' ? (
-                    <InstantSpread24hChart symbol={symbol} />
+                    <InstantSpread24hChart symbol={symbol} preloadedData={[]} />
                   ) : (
                     <InstantPriceComparisonChart symbol={symbol} />
                   )}

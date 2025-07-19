@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import dbConnection from '@/lib/db-connection';
+import { PrismaClient } from '@prisma/client';
 
 // GET - Listar todos os saldos manuais
 export async function GET() {
   try {
-    const balances = await dbConnection.getManualBalances();
+    const prisma = new PrismaClient();
+    const balances = await prisma.manualBalance.findMany({
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    await prisma.$disconnect();
     return NextResponse.json(balances);
   } catch (error) {
     console.error('[API] Erro ao buscar saldos manuais:', error);
@@ -33,28 +39,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Criar o saldo manual usando conexão direta
-    const query = `
-      INSERT INTO "ManualBalance" (id, name, amount, currency, description, "createdAt", "updatedAt")
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING *
-    `;
+    // Criar o saldo manual usando Prisma
+    const prisma = new PrismaClient();
     
     const id = `mb_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date();
     
-    const params = [
-      id,
-      name,
-      amount,
-      currency || 'USDT',
-      description || null,
-      now,
-      now
-    ];
+    const result = await prisma.manualBalance.create({
+      data: {
+        id,
+        name,
+        amount,
+        currency: currency || 'USDT',
+        description: description || null,
+        createdAt: now,
+        updatedAt: now
+      }
+    });
     
-    const result = await dbConnection.executeQuery(query, params);
-    return NextResponse.json(result[0], { status: 201 });
+    await prisma.$disconnect();
+    return NextResponse.json(result, { status: 201 });
   } catch (error) {
     console.error('[API] Erro ao criar saldo manual:', error);
     return NextResponse.json(

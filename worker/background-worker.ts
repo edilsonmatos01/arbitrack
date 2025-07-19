@@ -2,232 +2,301 @@
 // Este arquivo é um BACKGROUND WORKER com servidor HTTP e WebSocket para o Render
 
 import { PrismaClient } from '@prisma/client';
+import WebSocket from 'ws';
+import * as https from 'https';
 import * as http from 'http';
-import * as WebSocket from 'ws';
-import { getMonitoredPairs, MONITORING_CONFIG } from '../lib/predefined-pairs';
 
-// Importar conectores da versão anterior que funcionavam
-import { GateioConnector } from '../src/gateio-connector';
-import { MexcConnector } from '../src/mexc-connector';
+// Interfaces
+interface MarketPrice {
+  symbol: string;
+  bestAsk: number;
+  bestBid: number;
+}
+
+interface ArbitrageOpportunity {
+  type: 'arbitrage';
+  baseSymbol: string;
+  profitPercentage: number;
+  buyAt: {
+    exchange: string;
+    price: number;
+    marketType: 'spot' | 'futures';
+  };
+  sellAt: {
+    exchange: string;
+    price: number;
+    marketType: 'spot' | 'futures';
+  };
+  arbitrageType: string;
+  timestamp: number;
+}
+
+interface TradableSymbol {
+  baseSymbol: string;
+  gateioSymbol: string;
+  mexcSymbol: string;
+  gateioFuturesSymbol: string;
+  mexcFuturesSymbol: string;
+}
+
+interface WebSocketMessage {
+  time?: number;
+  channel?: string;
+  event?: string;
+  method?: string;
+  params?: string[];
+  param?: {
+    symbol: string;
+  };
+  payload?: string[];
+}
 
 // Configurações
-const MONITORING_INTERVAL = 10 * 1000; // 10 segundos para atualizações em tempo real
-const PORT = process.env.PORT || 10000;
+const MONITORING_INTERVAL = 500; // 500ms para atualizações rápidas
+const RECONNECT_INTERVAL = 5000;
+const DB_RETRY_INTERVAL = 30000;
+const SUBSCRIPTION_INTERVAL = 5 * 60 * 1000;
+const MIN_SPREAD_THRESHOLD = 0.01; // 0.01% mínimo
+const MAX_SPREAD_THRESHOLD = 50; // 50% máximo
+const WS_SERVER_PORT = 10000; // Porta do servidor WebSocket
+
 let isWorkerRunning = false;
 let isShuttingDown = false;
 let prisma: PrismaClient | null = null;
+
+// Servidor WebSocket para transmitir oportunidades
 let wss: any = null;
 let connectedClients: WebSocket[] = [];
 
-// Estado dos preços de mercado
-let marketPrices: any = {};
-
-// Função para inicializar o Prisma
-async function initializePrisma(): Promise<void> {
-  console.log('[Worker] Inicializando conexão com banco de dados...');
-  let retryCount = 0;
-  const maxRetries = 3;
-  
-  while (!isShuttingDown && retryCount < maxRetries) {
-    try {
-      if (!prisma) {
-        prisma = new PrismaClient();
-        await prisma.$connect();
-        console.log('[Worker] Conexão com o banco de dados estabelecida');
-        break;
-      }
-    } catch (error) {
-      retryCount++;
-      console.error(`[Worker] Erro ao conectar com o banco (tentativa ${retryCount}/${maxRetries}):`, error);
-      if (retryCount < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 10000));
-      } else {
-        console.log('[Worker] Continuando sem banco de dados');
-      }
+// Armazenamento de preços em tempo real
+const priceData: {
+  [exchange: string]: {
+    [symbol: string]: {
+      bestAsk: number;
+      bestBid: number;
+      timestamp: number;
     }
   }
-}
+} = {
+  'gateio_spot': {},
+  'mexc_spot': {},
+  'gateio_futures': {},
+  'mexc_futures': {}
+};
+
+// Configurações WebSocket
+const GATEIO_WS_URL = 'wss://api.gateio.ws/ws/v4/';
+const MEXC_WS_URL = 'wss://wbs.mexc.com/ws';
+const GATEIO_FUTURES_WS_URL = 'wss://fx-ws.gateio.ws/v4/ws/usdt';
+const MEXC_FUTURES_WS_URL = 'wss://contract.mexc.com/ws';
+
+// Mensagens de subscrição específicas para cada exchange
+const SUBSCRIPTION_MESSAGES = {
+  'Gate.io Spot': (symbol: string) => ({
+    id: Date.now(),
+    time: Date.now(),
+    channel: "spot.tickers",
+    event: "subscribe",
+    payload: [symbol]
+  }),
+  'MEXC Spot': (symbol: string) => ({
+    method: "sub.ticker",
+    param: { symbol: symbol }
+  }),
+  'Gate.io Futures': (symbol: string) => ({
+    id: Date.now(),
+    time: Date.now(),
+    channel: "futures.tickers",
+    event: "subscribe",
+    payload: [symbol]
+  }),
+  'MEXC Futures': (symbol: string) => ({
+    method: "sub.contract.ticker",
+    param: { symbol: symbol }
+  })
+};
 
 // Função para enviar dados via WebSocket
 function broadcastToClients(data: any): void {
   if (connectedClients.length === 0) return;
   
   const message = JSON.stringify(data);
+  const clientsToRemove: number[] = [];
+  
   connectedClients.forEach((client, index) => {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
+      try {
+        client.send(message);
+      } catch (error) {
+        console.error('[WebSocket] Erro ao enviar mensagem:', error);
+        clientsToRemove.push(index);
+      }
     } else {
-      // Remove clientes desconectados
-      connectedClients.splice(index, 1);
+      clientsToRemove.push(index);
     }
   });
-}
-
-// Função para lidar com atualizações de preço dos conectores
-function handlePriceUpdate(update: any) {
-  const { identifier, symbol, marketType, bestAsk, bestBid } = update;
-
-  // Atualiza o estado central de preços
-  if (!marketPrices[identifier]) {
-    marketPrices[identifier] = {};
-  }
-  marketPrices[identifier][symbol] = { bestAsk, bestBid, timestamp: Date.now() };
   
-  // Transmite a atualização para todos os clientes
-  broadcastToClients({
-    type: 'price-update',
-    symbol,
-    marketType,
-    bestAsk,
-    bestBid
+  // Remover clientes desconectados (em ordem reversa para não afetar índices)
+  clientsToRemove.reverse().forEach(index => {
+    connectedClients.splice(index, 1);
   });
 }
 
-// Função para gerar oportunidades de arbitragem
-async function generateArbitrageOpportunities(): Promise<any[]> {
-  const monitoredPairs = getMonitoredPairs();
-  const opportunities: any[] = [];
-
-  try {
-    console.log(`[Worker] Gerando oportunidades para ${monitoredPairs.length} pares...`);
-
-    for (const symbol of monitoredPairs) {
-      const gateioData = marketPrices['gateio']?.[symbol];
-      const mexcData = marketPrices['mexc']?.[symbol];
-
-      if (!gateioData || !mexcData) continue;
-
-      // Verifica se os preços são válidos
-      if (!isFinite(gateioData.bestAsk) || !isFinite(gateioData.bestBid) ||
-          !isFinite(mexcData.bestAsk) || !isFinite(mexcData.bestBid)) {
-        continue;
+// Função para verificar URL antes de conectar WebSocket
+async function checkEndpoint(url: string, name: string): Promise<string> {
+  return new Promise((resolve) => {
+    const httpsUrl = url.replace('wss://', 'https://');
+    https.get(httpsUrl, (res) => {
+      if (res.statusCode === 307 || res.statusCode === 302 || res.statusCode === 301) {
+        const newUrl = `wss://${res.headers.location?.replace('https://', '')}`;
+        resolve(newUrl);
+      } else {
+        resolve(url);
       }
-
-      // Calcula oportunidades de arbitragem
-      const gateioToMexc = ((mexcData.bestBid - gateioData.bestAsk) / gateioData.bestAsk) * 100;
-      const mexcToGateio = ((gateioData.bestBid - mexcData.bestAsk) / mexcData.bestAsk) * 100;
-
-      // Processa oportunidade Gate.io SPOT -> MEXC FUTURES
-      if (gateioToMexc >= MONITORING_CONFIG.minSpreadThreshold && 
-          gateioToMexc <= MONITORING_CONFIG.maxSpreadThreshold) {
-        opportunities.push({
-          symbol,
-          spread: gateioToMexc,
-          spotPrice: gateioData.bestAsk,
-          futuresPrice: mexcData.bestBid,
-          exchangeBuy: 'gateio',
-          exchangeSell: 'mexc',
-          direction: 'spot_to_futures',
-          timestamp: new Date()
-        });
-      }
-
-      // Processa oportunidade MEXC FUTURES -> Gate.io SPOT
-      if (mexcToGateio >= MONITORING_CONFIG.minSpreadThreshold && 
-          mexcToGateio <= MONITORING_CONFIG.maxSpreadThreshold) {
-        opportunities.push({
-          symbol,
-          spread: mexcToGateio,
-          spotPrice: gateioData.bestBid,
-          futuresPrice: mexcData.bestAsk,
-          exchangeBuy: 'mexc',
-          exchangeSell: 'gateio',
-          direction: 'futures_to_spot',
-          timestamp: new Date()
-        });
-      }
-    }
-
-    // Ordenar por spread e limitar a 20 melhores oportunidades
-    const sortedOpportunities = opportunities
-      .sort((a, b) => b.spread - a.spread)
-      .slice(0, 20);
-
-    console.log(`[Worker] Geradas ${sortedOpportunities.length} oportunidades válidas`);
-    return sortedOpportunities;
-
-  } catch (error) {
-    console.error('[Worker] Erro ao gerar oportunidades:', error);
-    return [];
-  }
-}
-
-// Função principal de monitoramento
-async function monitorAndStore(): Promise<void> {
-  if (isWorkerRunning) {
-    return;
-  }
-
-  try {
-    isWorkerRunning = true;
-    console.log(`[Worker ${new Date().toLocaleTimeString()}] Monitoramento ativo - Gerando oportunidades reais`);
-    
-    // Gerar oportunidades reais
-    const realOpportunities = await generateArbitrageOpportunities();
-    
-    // Enviar oportunidades via WebSocket
-    let opportunitiesSent = 0;
-    for (const opportunity of realOpportunities) {
-      const opportunityData = {
-        type: 'opportunity',
-        symbol: opportunity.symbol,
-        spread: opportunity.spread,
-        spotPrice: Number(opportunity.spotPrice),
-        futuresPrice: Number(opportunity.futuresPrice),
-        timestamp: opportunity.timestamp.toISOString(),
-        exchangeBuy: opportunity.exchangeBuy,
-        exchangeSell: opportunity.exchangeSell,
-        direction: opportunity.direction
-      };
-      
-      broadcastToClients(opportunityData);
-      opportunitiesSent++;
-      console.log(`[Worker] ✅ Oportunidade enviada: ${opportunity.symbol} - ${opportunity.spread.toFixed(4)}% - Spot: ${opportunity.spotPrice} - Futures: ${opportunity.futuresPrice}`);
-    }
-    
-    console.log(`[Worker] Total de oportunidades enviadas: ${opportunitiesSent}`);
-    
-    // Enviar heartbeat para clientes
-    broadcastToClients({
-      type: 'heartbeat',
-      timestamp: new Date().toISOString(),
-      message: `Worker ativo - ${opportunitiesSent} oportunidades encontradas`,
-      monitoredPairs: getMonitoredPairs().length,
-      updateInterval: MONITORING_INTERVAL / 1000
+    }).on('error', (err) => {
+      console.error(`[${name}] Erro ao verificar endpoint ${url}:`, err);
+      resolve(url);
     });
-    
-  } catch (error) {
-    console.error('[Worker] Erro no monitoramento:', error);
-  } finally {
-    isWorkerRunning = false;
-  }
+  });
 }
 
-// Função para iniciar os conectores
-async function startConnectors(): Promise<void> {
-  console.log('[Worker] Iniciando conectores...');
+// Função para criar conexão WebSocket
+async function createWebSocket(url: string, name: string): Promise<WebSocket> {
+  console.log(`[${name}] Tentando conectar em: ${url}`);
   
-  try {
-    const gateio = new GateioConnector();
-    const mexc = new MexcConnector();
+  const ws = new WebSocket(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    },
+    followRedirects: true,
+    handshakeTimeout: name.includes('MEXC') ? 30000 : 10000
+  });
 
-    // Configurar callbacks de atualização de preço
-    gateio.onPriceUpdate(handlePriceUpdate);
-    mexc.onPriceUpdate(handlePriceUpdate);
+  let subscriptionInterval: NodeJS.Timeout;
+  let isFirstConnection = true;
 
-    // Conectar aos feeds
-    await gateio.connect();
-    await mexc.connect();
+  function subscribe(symbol: TradableSymbol) {
+    try {
+      if (ws.readyState !== WebSocket.OPEN) {
+        console.log(`[${name}] WebSocket não está aberto para subscrição`);
+        return;
+      }
 
-    console.log('[Worker] ✅ Conectores iniciados com sucesso');
+      const getMessage = SUBSCRIPTION_MESSAGES[name as keyof typeof SUBSCRIPTION_MESSAGES];
+      if (!getMessage) {
+        console.error(`[${name}] Formato de mensagem não definido`);
+        return;
+      }
+
+      let symbolToUse = '';
+      if (name === 'Gate.io Spot') symbolToUse = symbol.gateioSymbol;
+      else if (name === 'MEXC Spot') symbolToUse = symbol.mexcSymbol;
+      else if (name === 'Gate.io Futures') symbolToUse = symbol.gateioFuturesSymbol;
+      else if (name === 'MEXC Futures') symbolToUse = symbol.mexcFuturesSymbol;
+
+      const message = getMessage(symbolToUse);
+      console.log(`[${name}] Enviando subscrição para ${symbolToUse}:`, JSON.stringify(message));
+      ws.send(JSON.stringify(message));
+    } catch (error) {
+      console.error(`[${name}] Erro ao subscrever ${symbol.baseSymbol}:`, error);
+    }
+  }
+
+  ws.on('open', async () => {
+    console.log(`[${name}] Conexão WebSocket estabelecida`);
     
+    try {
+      if (isFirstConnection) {
+        isFirstConnection = false;
+        const symbols = await getTradablePairs();
+        console.log(`[${name}] Pares obtidos na primeira conexão:`, symbols.length);
+        
+        const defaultSymbols = symbols.length > 0 ? symbols : [{
+          baseSymbol: 'BTC',
+          gateioSymbol: 'BTC_USDT',
+          mexcSymbol: 'BTC_USDT',
+          gateioFuturesSymbol: 'BTC_USDT',
+          mexcFuturesSymbol: 'BTC_USDT'
+        }];
+
+        for (const symbol of defaultSymbols) {
+          subscribe(symbol);
+        }
+      }
+
+      subscriptionInterval = setInterval(async () => {
+        const symbols = await getTradablePairs();
+        const defaultSymbols = symbols.length > 0 ? symbols : [{
+          baseSymbol: 'BTC',
+          gateioSymbol: 'BTC_USDT',
+          mexcSymbol: 'BTC_USDT',
+          gateioFuturesSymbol: 'BTC_USDT',
+          mexcFuturesSymbol: 'BTC_USDT'
+        }];
+
+        for (const symbol of defaultSymbols) {
+          subscribe(symbol);
+        }
+      }, SUBSCRIPTION_INTERVAL);
+    } catch (error) {
+      console.error(`[${name}] Erro ao iniciar subscrições:`, error);
+    }
+  });
+
+  ws.on('error', (error: Error) => {
+    console.error(`[${name}] Erro WebSocket:`, error);
+    clearInterval(subscriptionInterval);
+  });
+
+  ws.on('message', (data: WebSocket.Data) => {
+    try {
+      const message = JSON.parse(data.toString());
+      processWebSocketMessage(name, message);
+    } catch (error) {
+      console.error(`[${name}] Erro ao processar mensagem:`, error);
+    }
+  });
+
+  ws.on('close', (code: number, reason: string) => {
+    console.log(`[${name}] Conexão WebSocket fechada - Código: ${code}, Razão: ${reason}`);
+    clearInterval(subscriptionInterval);
+    
+    if (!isShuttingDown) {
+      console.log(`[${name}] Tentando reconectar em ${RECONNECT_INTERVAL/1000} segundos...`);
+      setTimeout(async () => {
+        try {
+          const checkedUrl = await checkEndpoint(url, name);
+          createWebSocket(checkedUrl, name);
+        } catch (error) {
+          console.error(`[${name}] Erro ao reconectar:`, error);
+        }
+      }, RECONNECT_INTERVAL);
+    }
+  });
+
+  return ws;
+}
+
+// Inicializa as conexões WebSocket
+let gateioWs: WebSocket;
+let mexcWs: WebSocket;
+let gateioFuturesWs: WebSocket;
+let mexcFuturesWs: WebSocket;
+
+// Função para inicializar as conexões WebSocket
+async function initializeWebSockets(): Promise<void> {
+  try {
+    gateioWs = await createWebSocket(GATEIO_WS_URL, 'Gate.io Spot');
+    mexcWs = await createWebSocket(MEXC_WS_URL, 'MEXC Spot');
+    gateioFuturesWs = await createWebSocket(GATEIO_FUTURES_WS_URL, 'Gate.io Futures');
+    mexcFuturesWs = await createWebSocket(MEXC_FUTURES_WS_URL, 'MEXC Futures');
   } catch (error) {
-    console.error('[Worker] Erro ao iniciar conectores:', error);
+    console.error('[Worker] Erro ao inicializar conexões WebSocket:', error);
   }
 }
 
-// Criar servidor HTTP e WebSocket
-function createServer(): http.Server {
+// Função para inicializar o servidor WebSocket
+function initializeWebSocketServer(): void {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -235,12 +304,10 @@ function createServer(): http.Server {
       timestamp: new Date().toISOString(),
       message: 'Servidor worker funcionando corretamente',
       websocketClients: connectedClients.length,
-      monitoredPairs: getMonitoredPairs().length,
       updateInterval: MONITORING_INTERVAL / 1000 + ' segundos'
     }));
   });
 
-  // Criar servidor WebSocket
   wss = new WebSocket.Server({ server });
   
   wss.on('connection', (ws: WebSocket) => {
@@ -251,8 +318,7 @@ function createServer(): http.Server {
     ws.send(JSON.stringify({
       type: 'connection',
       message: 'Conectado ao servidor de arbitragem em tempo real',
-      timestamp: new Date().toISOString(),
-      monitoredPairs: getMonitoredPairs().length
+      timestamp: new Date().toISOString()
     }));
     
     ws.on('close', () => {
@@ -268,73 +334,334 @@ function createServer(): http.Server {
     });
   });
 
-  return server;
+  server.listen(WS_SERVER_PORT, () => {
+    console.log(`✅ Servidor WebSocket rodando na porta ${WS_SERVER_PORT}`);
+    console.log(`🌐 WebSocket disponível em ws://localhost:${WS_SERVER_PORT}`);
+  });
 }
 
-// Função principal para iniciar o worker
-async function startWorker(): Promise<void> {
-  console.log('🚀 Iniciando worker de arbitragem em tempo real...');
-  console.log(`📊 Pares monitorados: ${getMonitoredPairs().length}`);
-  console.log(`⏰ Intervalo de atualização: ${MONITORING_INTERVAL / 1000} segundos`);
-  
-  try {
-    // Inicializar Prisma
-    await initializePrisma();
-    
-    // Iniciar conectores
-    await startConnectors();
-    
-    // Criar servidor HTTP e WebSocket
-    const server = createServer();
-    
-    // Iniciar servidor
-    server.listen(PORT, () => {
-      console.log(`✅ Servidor worker rodando na porta ${PORT}`);
-      console.log(`🌐 WebSocket disponível em ws://localhost:${PORT}`);
-    });
-    
-    // Iniciar monitoramento imediatamente
-    await monitorAndStore();
-    
-    // Configurar intervalo de monitoramento
-    const monitoringInterval = setInterval(async () => {
-      if (isShuttingDown) {
-        clearInterval(monitoringInterval);
-        return;
+// Função para inicializar o Prisma com retry
+async function initializePrisma(): Promise<void> {
+  while (!isShuttingDown) {
+    try {
+      if (!prisma) {
+        prisma = new PrismaClient();
+        await prisma.$connect();
+        console.log('[Worker] Conexão com o banco de dados estabelecida');
+        break;
       }
-      await monitorAndStore();
-    }, MONITORING_INTERVAL);
-    
-    console.log('✅ Worker iniciado com sucesso!');
-    
-  } catch (error) {
-    console.error('❌ Erro ao iniciar worker:', error);
-    process.exit(1);
+    } catch (error) {
+      console.error('[Worker] Erro ao conectar com o banco de dados:', error);
+      console.log(`[Worker] Tentando reconectar ao banco de dados em ${DB_RETRY_INTERVAL/1000} segundos...`);
+      await new Promise(resolve => setTimeout(resolve, DB_RETRY_INTERVAL));
+    }
   }
 }
 
-// Tratamento de sinais para encerramento limpo
-process.on('SIGINT', async () => {
-  console.log('\n🛑 Encerrando worker...');
-  isShuttingDown = true;
-  
-  if (prisma) {
-    await prisma.$disconnect();
+// Função para obter pares negociáveis
+async function getTradablePairs(): Promise<TradableSymbol[]> {
+  try {
+    if (!prisma) {
+      await initializePrisma();
+      if (!prisma) return [];
+    }
+    return await prisma.$queryRaw<TradableSymbol[]>`
+      SELECT "baseSymbol", "gateioSymbol", "mexcSymbol", "gateioFuturesSymbol", "mexcFuturesSymbol"
+      FROM "TradableSymbol"
+      WHERE "isActive" = true
+    `;
+  } catch (error) {
+    console.error('[Worker] Erro ao obter pares negociáveis:', error);
+    return [];
   }
-  
-  process.exit(0);
-});
+}
 
+// Função para processar mensagens WebSocket e atualizar preços
+function processWebSocketMessage(exchange: string, message: any): void {
+  try {
+    let symbol = '';
+    let bestAsk = 0;
+    let bestBid = 0;
+
+    // Processa mensagens do Gate.io Spot
+    if (exchange === 'Gate.io Spot' && message.channel === 'spot.tickers' && message.result) {
+      symbol = message.result.currency_pair;
+      bestAsk = parseFloat(message.result.lowest_ask);
+      bestBid = parseFloat(message.result.highest_bid);
+      
+      if (symbol && bestAsk > 0 && bestBid > 0) {
+        priceData['gateio_spot'][symbol] = {
+          bestAsk,
+          bestBid,
+          timestamp: Date.now()
+        };
+        console.log(`[GATEIO SPOT] ${symbol}: Ask=${bestAsk}, Bid=${bestBid}`);
+      }
+    }
+    
+    // Processa mensagens do MEXC Spot
+    else if (exchange === 'MEXC Spot' && message.c && message.c.includes('spot.ticker')) {
+      symbol = message.s;
+      bestAsk = parseFloat(message.a);
+      bestBid = parseFloat(message.b);
+      
+      if (symbol && bestAsk > 0 && bestBid > 0) {
+        priceData['mexc_spot'][symbol] = {
+          bestAsk,
+          bestBid,
+          timestamp: Date.now()
+        };
+        console.log(`[MEXC SPOT] ${symbol}: Ask=${bestAsk}, Bid=${bestBid}`);
+      }
+    }
+    
+    // Processa mensagens do Gate.io Futures
+    else if (exchange === 'Gate.io Futures' && message.channel === 'futures.tickers' && message.result) {
+      symbol = message.result.contract;
+      bestAsk = parseFloat(message.result.lowest_ask);
+      bestBid = parseFloat(message.result.highest_bid);
+      
+      if (symbol && bestAsk > 0 && bestBid > 0) {
+        priceData['gateio_futures'][symbol] = {
+          bestAsk,
+          bestBid,
+          timestamp: Date.now()
+        };
+        console.log(`[GATEIO FUTURES] ${symbol}: Ask=${bestAsk}, Bid=${bestBid}`);
+      }
+    }
+    
+    // Processa mensagens do MEXC Futures
+    else if (exchange === 'MEXC Futures' && message.c && message.c.includes('contract.ticker')) {
+      symbol = message.s;
+      bestAsk = parseFloat(message.a);
+      bestBid = parseFloat(message.b);
+      
+      if (symbol && bestAsk > 0 && bestBid > 0) {
+        priceData['mexc_futures'][symbol] = {
+          bestAsk,
+          bestBid,
+          timestamp: Date.now()
+        };
+        console.log(`[MEXC FUTURES] ${symbol}: Ask=${bestAsk}, Bid=${bestBid}`);
+      }
+    }
+  } catch (error) {
+    console.error(`[${exchange}] Erro ao processar mensagem:`, error);
+  }
+}
+
+// Função para calcular oportunidades de arbitragem
+function calculateArbitrageOpportunities(): ArbitrageOpportunity[] {
+  const opportunities: ArbitrageOpportunity[] = [];
+  const symbols = Object.keys(priceData['gateio_spot']);
+
+  for (const symbol of symbols) {
+    try {
+      const gateioSpot = priceData['gateio_spot'][symbol];
+      const mexcSpot = priceData['mexc_spot'][symbol];
+      const gateioFutures = priceData['gateio_futures'][symbol];
+      const mexcFutures = priceData['mexc_futures'][symbol];
+
+      // Verifica se temos dados suficientes
+      if (!gateioSpot || !mexcFutures) continue;
+
+      // Calcula spread: Gate.io Spot -> MEXC Futures
+      const spotPrice = gateioSpot.bestAsk; // Compra no spot
+      const futuresPrice = mexcFutures.bestBid; // Venda no futures
+      
+      if (spotPrice > 0 && futuresPrice > 0) {
+        const spread = ((futuresPrice - spotPrice) / spotPrice) * 100;
+        
+        if (spread >= MIN_SPREAD_THRESHOLD && spread <= MAX_SPREAD_THRESHOLD) {
+          const opportunity: ArbitrageOpportunity = {
+            type: 'arbitrage',
+            baseSymbol: symbol.replace('_USDT', ''),
+            profitPercentage: spread,
+            buyAt: {
+              exchange: 'gateio',
+              price: spotPrice,
+              marketType: 'spot'
+            },
+            sellAt: {
+              exchange: 'mexc',
+              price: futuresPrice,
+              marketType: 'futures'
+            },
+            arbitrageType: 'spot_to_futures',
+            timestamp: Date.now()
+          };
+          
+          opportunities.push(opportunity);
+          console.log(`[Worker] ✅ Oportunidade encontrada: ${symbol} - ${spread.toFixed(4)}%`);
+        }
+      }
+
+      // Calcula spread: MEXC Spot -> Gate.io Futures
+      if (mexcSpot && gateioFutures) {
+        const spotPrice = mexcSpot.bestAsk; // Compra no spot
+        const futuresPrice = gateioFutures.bestBid; // Venda no futures
+        
+        if (spotPrice > 0 && futuresPrice > 0) {
+          const spread = ((futuresPrice - spotPrice) / spotPrice) * 100;
+          
+          if (spread >= MIN_SPREAD_THRESHOLD && spread <= MAX_SPREAD_THRESHOLD) {
+            const opportunity: ArbitrageOpportunity = {
+              type: 'arbitrage',
+              baseSymbol: symbol.replace('_USDT', ''),
+              profitPercentage: spread,
+              buyAt: {
+                exchange: 'mexc',
+                price: spotPrice,
+                marketType: 'spot'
+              },
+              sellAt: {
+                exchange: 'gateio',
+                price: futuresPrice,
+                marketType: 'futures'
+              },
+              arbitrageType: 'spot_to_futures',
+              timestamp: Date.now()
+            };
+            
+            opportunities.push(opportunity);
+            console.log(`[Worker] ✅ Oportunidade encontrada: ${symbol} - ${spread.toFixed(4)}%`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[Worker] Erro ao calcular oportunidade para ${symbol}:`, error);
+    }
+  }
+
+  return opportunities;
+}
+
+// Função para salvar oportunidades no banco
+async function saveOpportunities(opportunities: ArbitrageOpportunity[]): Promise<void> {
+  if (!prisma || opportunities.length === 0) return;
+
+  try {
+    for (const opportunity of opportunities) {
+      await prisma.spreadHistory.create({
+        data: {
+          symbol: opportunity.baseSymbol,
+          spread: opportunity.profitPercentage,
+          spotPrice: opportunity.buyAt.price,
+          futuresPrice: opportunity.sellAt.price,
+          exchangeBuy: opportunity.buyAt.exchange,
+          exchangeSell: opportunity.sellAt.exchange,
+          direction: opportunity.arbitrageType,
+          timestamp: new Date(opportunity.timestamp)
+        }
+      });
+    }
+    console.log(`[Worker] 💾 ${opportunities.length} oportunidades salvas no banco`);
+  } catch (error) {
+    console.error('[Worker] Erro ao salvar oportunidades:', error);
+  }
+}
+
+// Função principal de monitoramento
+async function monitorAndStore(): Promise<void> {
+  if (isWorkerRunning) {
+    console.log('[Worker] Monitoramento já está em execução');
+    return;
+  }
+
+  try {
+    isWorkerRunning = true;
+    console.log(`[Worker ${new Date().toLocaleTimeString()}] Monitoramento ativo - Gerando oportunidades reais`);
+    
+    // Calcula oportunidades de arbitragem
+    const opportunities = calculateArbitrageOpportunities();
+    
+    if (opportunities.length > 0) {
+      console.log(`[Worker] Geradas ${opportunities.length} oportunidades válidas`);
+      
+      // Salva no banco
+      await saveOpportunities(opportunities);
+      
+      // Envia via WebSocket IMEDIATAMENTE
+      for (const opportunity of opportunities) {
+        console.log(`[Worker] ✅ Oportunidade enviada: ${opportunity.baseSymbol} - ${opportunity.profitPercentage.toFixed(4)}% - Spot: ${opportunity.buyAt.price} - Futures: ${opportunity.sellAt.price}`);
+        
+        // Broadcast imediato para todos os clientes
+        broadcastToClients(opportunity);
+      }
+      
+      // Enviar heartbeat para clientes
+      broadcastToClients({
+        type: 'heartbeat',
+        timestamp: new Date().toISOString(),
+        message: `Worker ativo - ${opportunities.length} oportunidades encontradas`,
+        updateInterval: MONITORING_INTERVAL / 1000
+      });
+    }
+  } catch (error) {
+    console.error('[Worker] Erro no monitoramento:', error);
+  } finally {
+    isWorkerRunning = false;
+  }
+}
+
+// Função principal que mantém o worker rodando
+async function startWorker(): Promise<void> {
+  console.log('[Worker] Iniciando worker em segundo plano...');
+  
+  // Inicializa o servidor WebSocket
+  initializeWebSocketServer();
+  
+  // Inicializa as conexões WebSocket
+  await initializeWebSockets();
+  
+  while (!isShuttingDown) {
+    await monitorAndStore();
+    await new Promise(resolve => setTimeout(resolve, MONITORING_INTERVAL));
+  }
+}
+
+// Tratamento de encerramento gracioso
 process.on('SIGTERM', async () => {
-  console.log('\n🛑 Encerrando worker...');
+  console.log('[Worker] Recebido sinal SIGTERM, encerrando graciosamente...');
   isShuttingDown = true;
+  
+  if (gateioWs) gateioWs.close();
+  if (mexcWs) mexcWs.close();
+  if (gateioFuturesWs) gateioFuturesWs.close();
+  if (mexcFuturesWs) mexcFuturesWs.close();
+  
+  if (wss) {
+    wss.close();
+  }
   
   if (prisma) {
     await prisma.$disconnect();
   }
-  
   process.exit(0);
 });
 
-// Iniciar worker
-startWorker().catch(console.error);
+process.on('SIGINT', async () => {
+  console.log('[Worker] Recebido sinal SIGINT, encerrando graciosamente...');
+  isShuttingDown = true;
+  
+  if (gateioWs) gateioWs.close();
+  if (mexcWs) mexcWs.close();
+  if (gateioFuturesWs) gateioFuturesWs.close();
+  if (mexcFuturesWs) mexcFuturesWs.close();
+  
+  if (wss) {
+    wss.close();
+  }
+  
+  if (prisma) {
+    await prisma.$disconnect();
+  }
+  process.exit(0);
+});
+
+// Inicia o worker
+startWorker().catch(error => {
+  console.error('[Worker] Erro fatal:', error);
+  process.exit(1);
+});

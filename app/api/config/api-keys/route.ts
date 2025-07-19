@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import dbConnection from '@/lib/db-connection';
+import { PrismaClient } from '@prisma/client';
 import { encrypt, decrypt } from '@/lib/crypto';
 
 export const dynamic = 'force-dynamic';
@@ -10,12 +10,21 @@ export async function GET(req: NextRequest) {
     let configs: any[] = [];
     
     try {
-      // Tentar buscar do banco de dados usando conexão direta
-      const result = await dbConnection.executeQuery(`
-        SELECT id, exchange, "isActive", "createdAt", "updatedAt"
-        FROM "ApiConfiguration"
-        ORDER BY "createdAt" DESC
-      `);
+      // Tentar buscar do banco de dados usando Prisma
+      const prisma = new PrismaClient();
+      const result = await prisma.apiConfiguration.findMany({
+        select: {
+          id: true,
+          exchange: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+      await prisma.$disconnect();
       configs = result;
     } catch (dbError: any) {
       console.warn('Banco de dados não disponível, usando variáveis de ambiente:', dbError.message);
@@ -83,30 +92,54 @@ export async function POST(req: NextRequest) {
     const encryptedPassphrase = passphrase ? encrypt(passphrase) : null;
 
     // Verificar se já existe configuração para esta exchange
-    const existingConfig = await dbConnection.executeQuery(
-      'SELECT * FROM "ApiConfiguration" WHERE exchange = $1',
-      [exchange]
-    );
+    const prisma = new PrismaClient();
+    const existingConfig = await prisma.apiConfiguration.findFirst({
+      where: { exchange }
+    });
 
     let config;
-    if (existingConfig.length > 0) {
+    if (existingConfig) {
       // Atualizar configuração existente
-      const result = await dbConnection.executeQuery(`
-        UPDATE "ApiConfiguration" 
-        SET "apiKey" = $1, "apiSecret" = $2, "passphrase" = $3, "isActive" = $4, "updatedAt" = NOW()
-        WHERE exchange = $5
-        RETURNING id, exchange, "isActive", "createdAt", "updatedAt"
-      `, [encryptedApiKey, encryptedApiSecret, encryptedPassphrase, isActive, exchange]);
-      config = result[0];
+      const result = await prisma.apiConfiguration.update({
+        where: { id: existingConfig.id },
+        data: {
+          apiKey: encryptedApiKey,
+          apiSecret: encryptedApiSecret,
+          passphrase: encryptedPassphrase,
+          isActive,
+          updatedAt: new Date()
+        },
+        select: {
+          id: true,
+          exchange: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+      config = result;
     } else {
       // Criar nova configuração
-      const result = await dbConnection.executeQuery(`
-        INSERT INTO "ApiConfiguration" (exchange, "apiKey", "apiSecret", "passphrase", "isActive", "createdAt", "updatedAt")
-        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-        RETURNING id, exchange, "isActive", "createdAt", "updatedAt"
-      `, [exchange, encryptedApiKey, encryptedApiSecret, encryptedPassphrase, isActive]);
-      config = result[0];
+      const result = await prisma.apiConfiguration.create({
+        data: {
+          exchange,
+          apiKey: encryptedApiKey,
+          apiSecret: encryptedApiSecret,
+          passphrase: encryptedPassphrase,
+          isActive
+        },
+        select: {
+          id: true,
+          exchange: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+      config = result;
     }
+    
+    await prisma.$disconnect();
 
     return NextResponse.json(config);
   } catch (error) {
@@ -125,10 +158,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Exchange é obrigatório' }, { status: 400 });
     }
 
-    await dbConnection.executeQuery(
-      'DELETE FROM "ApiConfiguration" WHERE exchange = $1',
-      [exchange]
-    );
+    const prisma = new PrismaClient();
+    await prisma.apiConfiguration.deleteMany({
+      where: { exchange }
+    });
+    await prisma.$disconnect();
 
     return NextResponse.json({ message: 'Configuração removida com sucesso' });
   } catch (error) {
@@ -144,16 +178,19 @@ export async function getApiCredentials(exchange: string): Promise<{
   passphrase?: string;
 } | null> {
   try {
-    const configs = await dbConnection.executeQuery(
-      'SELECT * FROM "ApiConfiguration" WHERE exchange = $1 AND "isActive" = true',
-      [exchange]
-    );
+    const prisma = new PrismaClient();
+    const config = await prisma.apiConfiguration.findFirst({
+      where: { 
+        exchange,
+        isActive: true
+      }
+    });
+    await prisma.$disconnect();
 
-    if (configs.length === 0) {
+    if (!config) {
       return null;
     }
 
-    const config = configs[0] as any;
     return {
       apiKey: decrypt(config.apiKey),
       apiSecret: decrypt(config.apiSecret),

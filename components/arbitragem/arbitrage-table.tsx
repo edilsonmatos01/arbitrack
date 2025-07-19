@@ -2,7 +2,8 @@
 import { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import { Play, RefreshCw, AlertTriangle, CheckCircle2, Clock, Plus, Trash2 } from 'lucide-react'; // Ícones
 import { useArbitrageWebSocket } from './useArbitrageWebSocket';
-import MaxSpreadCell from './MaxSpreadCell'; // Importar o novo componente
+import { usePreloadData } from './usePreloadData';
+import InstantMaxSpreadCell from './InstantMaxSpreadCell'; // Importar o componente otimizado
 import React from 'react';
 import Decimal from 'decimal.js';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -103,7 +104,7 @@ function getTrackerParams(opportunity: Opportunity): {
 const POLLING_INTERVAL_MS = 5000; // Intervalo de polling: 5 segundos
 
 // ✅ 6. A renderização deve ser otimizada com React.memo
-const OpportunityRow = React.memo(({ opportunity, livePrices, formatPrice, getSpreadDisplayClass, calcularLucro, handleCadastrarPosicao }: any) => {
+const OpportunityRow = React.memo(({ opportunity, livePrices, formatPrice, getSpreadDisplayClass, calcularLucro, handleCadastrarPosicao, minSpread }: any) => {
     console.log('[RENDER ROW]', opportunity);
     // ✅ 4. Na renderização de cada linha da tabela, ao exibir os preços:
     const getLivePrice = (originalPrice: number, marketTypeStr: string, side: 'buy' | 'sell') => {
@@ -119,21 +120,33 @@ const OpportunityRow = React.memo(({ opportunity, livePrices, formatPrice, getSp
         return originalPrice;
     };
 
-    // Obtém os preços sem formatação para o cálculo
-    const rawCompraPreco = getLivePrice(opportunity.compraPreco, opportunity.compraExchange, 'buy');
-    const rawVendaPreco = getLivePrice(opportunity.vendaPreco, opportunity.vendaExchange, 'sell');
+    // TEMPORÁRIO: Usar preços originais do worker (desabilitar getLivePrice)
+    const rawCompraPreco = opportunity.compraPreco;
+    const rawVendaPreco = opportunity.vendaPreco;
 
-    // Calcula o spread usando Decimal.js para máxima precisão
-    const spreadValue = new Decimal(rawVendaPreco)
-        .minus(new Decimal(rawCompraPreco))
-        .dividedBy(new Decimal(rawCompraPreco))
+    // CORREÇÃO FINAL: Usar os preços corretos baseado na lógica de arbitragem
+    // Compra sempre no SPOT (preço mais baixo), Venda sempre no FUTURES (preço mais alto)
+    const spotPrice = rawCompraPreco; // Sempre compra no spot
+    const futuresPrice = rawVendaPreco; // Sempre venda no futures
+    
+    // Calcula o spread usando a fórmula correta: ((Futures - Spot) / Spot) × 100
+    const spreadValue = new Decimal(futuresPrice)
+        .minus(new Decimal(spotPrice))
+        .dividedBy(new Decimal(spotPrice))
         .times(100)
         .toNumber();
-    console.log('[SPREAD RENDER]', opportunity.symbol, spreadValue, opportunity.compraPreco, opportunity.vendaPreco, rawCompraPreco, rawVendaPreco);
+    
+    console.log('[SPREAD RENDER]', opportunity.symbol, spreadValue, 'Spot:', spotPrice, 'Futures:', futuresPrice, 'Compra:', opportunity.compraExchange, 'Venda:', opportunity.vendaExchange);
 
-    // Não renderiza a linha se o spread for negativo ou zero
+    // Não renderiza a linha se o spread for zero ou negativo (sem oportunidade)
     if (spreadValue <= 0) {
-        console.log('[ROW OCULTA]', opportunity.symbol, spreadValue, opportunity);
+        console.log('[ROW OCULTA]', opportunity.symbol, `spread ${spreadValue.toFixed(3)}% <= 0 (sem oportunidade)`, opportunity);
+        return null;
+    }
+
+    // Verifica se o spread atende ao mínimo configurado (apenas positivos)
+    if (spreadValue < minSpread) {
+        console.log('[ROW OCULTA]', opportunity.symbol, `spread ${spreadValue.toFixed(3)}% < mínimo ${minSpread}%`, opportunity);
         return null;
     }
 
@@ -188,10 +201,10 @@ const OpportunityRow = React.memo(({ opportunity, livePrices, formatPrice, getSp
                 </a>
             </td>
             <td className={`py-4 px-6 whitespace-nowrap text-sm font-bold ${getSpreadDisplayClass(spreadValue)}`}>
-              {new Decimal(spreadValue).toFixed(2)}%
+              {spreadValue > 0 ? '+' : ''}{new Decimal(spreadValue).toFixed(2)}%
             </td>
             <td className="py-4 px-6 whitespace-nowrap text-sm">
-              <MaxSpreadCell symbol={opportunity.symbol} currentSpread={spreadValue} maxSpread24h={opportunity.maxSpread24h} />
+              <InstantMaxSpreadCell symbol={opportunity.symbol.replace('/', '_')} currentSpread={spreadValue} />
             </td>
             <td className="py-4 px-6 whitespace-nowrap text-center text-sm">
               <button 
@@ -263,11 +276,11 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   console.log('[ArbitrageTable] Componente sendo renderizado');
   const [arbitrageType, setArbitrageType] = useState<'intra'|'inter'>('inter');
   const [direction, setDirection] = useState<'SPOT_TO_FUTURES' | 'FUTURES_TO_SPOT' | 'ALL'>('ALL');
-  const [minSpread, setMinSpread] = useState(0.1);
+  const [minSpread, setMinSpread] = useState(0.01); // Reduzido para 0.01% para capturar mais oportunidades
   const [amount, setAmount] = useState(100);
   const [spotExchange, setSpotExchange] = useState('gateio');
   const [futuresExchange, setFuturesExchange] = useState('mexc');
-  const [isPaused, setIsPaused] = useState(true); // Agora inicia pausado
+  const [isPaused, setIsPaused] = useState(false); // Inicia ativo para receber oportunidades
   
   // DESABILITADO: Pré-carregar dados dos gráficos
   // usePreloadCharts();
@@ -382,6 +395,28 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
   
     // Hook de oportunidades sempre chamado, mas só conecta se enabled=true
   const { opportunities: opportunitiesRaw, livePrices } = useArbitrageWebSocket(!isPaused);
+  
+  // Hook de pré-carregamento de dados
+  const { isLoading: isPreloading, getSpreadData, refreshData, isInitialized } = usePreloadData();
+  
+  console.log('[ArbitrageTable] usePreloadData status:', { isPreloading, isInitialized });
+  
+  // Teste manual do hook
+  const testPreloadData = () => {
+    console.log('[ArbitrageTable] Testando hook manualmente...');
+    const testSymbol = 'WHITE_USDT';
+    const spreadData = getSpreadData(testSymbol);
+    console.log(`[ArbitrageTable] Dados para ${testSymbol}:`, spreadData);
+    if (spreadData) {
+      console.log(`[ArbitrageTable] ✅ Spread máximo para ${testSymbol}: ${spreadData.spMax}%`);
+    } else {
+      console.log(`[ArbitrageTable] ❌ Nenhum dado encontrado para ${testSymbol}`);
+      console.log('[ArbitrageTable] Tentando recarregar dados...');
+      refreshData();
+    }
+  };
+
+  
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string|null>(null);
   const [successMessage, setSuccessMessage] = useState<string|null>(null);
@@ -1097,7 +1132,17 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
       )}
 
       <div className="bg-dark-card p-4 rounded-lg shadow">
-        <h2 className="text-xl font-semibold text-white mb-4">Oportunidades Encontradas</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-white">Oportunidades Encontradas</h2>
+          
+          {/* Botão de teste */}
+          <button
+            onClick={testPreloadData}
+            className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+          >
+            Testar Dados
+          </button>
+        </div>
         
 
         <div className="overflow-x-auto">
@@ -1192,7 +1237,19 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                       })
                       .slice(0, maxOpportunities);
                     
-                    return filteredOpps.map((opp: any) => (
+                    console.log('[ArbitrageTable] Oportunidades filtradas:', filteredOpps.length);
+                    
+                    return filteredOpps.map((opp: any) => {
+                        const symbol = opp.baseSymbol;
+                        console.log('[ArbitrageTable] Processando oportunidade:', { 
+                          symbol, 
+                          baseSymbol: opp.baseSymbol,
+                          formattedSymbol: symbol.replace('/', '_'),
+                          isSpotBuyFuturesSell: opp.buyAt.marketType === 'spot' && opp.sellAt.marketType === 'futures',
+                          hasBuyAt: !!opp.buyAt,
+                          hasSellAt: !!opp.sellAt
+                        });
+                        return (
                         <OpportunityRow
                           key={`${opp.baseSymbol}-${opp.buyAt.exchange}-${opp.sellAt.exchange}`}
                           opportunity={{
@@ -1213,8 +1270,10 @@ export default function ArbitrageTable({ isBigArb = false }: ArbitrageTableProps
                           getSpreadDisplayClass={getSpreadDisplayClass}
                           calcularLucro={calcularLucro}
                           handleCadastrarPosicao={handleCadastrarPosicao}
+                          minSpread={minSpread}
                         />
-                      ));
+                      );
+                    });
                   } catch (err) {
                     console.error('Erro inesperado ao renderizar oportunidades:', err);
                     return (

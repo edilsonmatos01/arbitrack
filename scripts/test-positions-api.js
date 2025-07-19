@@ -1,99 +1,80 @@
 const fetch = require('node-fetch');
 
+// Configurações
+const API_BASE = 'http://localhost:3000/api';
+const TEST_USER = 'edilsonmatos';
+
+console.log('🧪 Teste da API de Posições - Corrigida com Prisma ORM');
+console.log('');
+
 async function testPositionsAPI() {
-  console.log('=== TESTE DA API DE POSIÇÕES ===');
-  
-  const baseURL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:10000';
-  const apiURL = `${baseURL}/api/positions`;
-  
-  console.log(`Testando API em: ${apiURL}`);
-  
   try {
-    console.log('\n📡 Fazendo requisição GET...');
-    const startTime = Date.now();
+    // Teste 1: GET - Buscar posições
+    console.log('📋 Teste 1: Buscando posições...');
+    const getResponse = await fetch(`${API_BASE}/positions?user_id=${TEST_USER}`);
+    const getData = await getResponse.json();
     
-    const response = await fetch(apiURL, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      timeout: 10000 // 10 segundos de timeout
+    console.log(`✅ Status: ${getResponse.status}`);
+    console.log(`📊 Posições encontradas: ${getData.length}`);
+    console.log(`⏱️  Tempo de resposta: ${getResponse.headers.get('x-response-time') || 'N/A'}`);
+    
+    if (getData.length > 0) {
+      console.log(`📝 Primeira posição:`, {
+        id: getData[0].id,
+        symbol: getData[0].symbol,
+        quantity: getData[0].quantity
+      });
+    }
+    console.log('');
+
+    // Teste 2: POST - Criar nova posição
+    console.log('➕ Teste 2: Criando nova posição...');
+    const newPosition = {
+      symbol: 'TEST_USDT',
+      quantity: 100,
+      spotEntry: 1.50,
+      futuresEntry: 1.52,
+      spotExchange: 'gateio',
+      futuresExchange: 'mexc',
+      isSimulated: true
+    };
+    
+    const postResponse = await fetch(`${API_BASE}/positions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newPosition)
     });
     
-    const endTime = Date.now();
-    const duration = endTime - startTime;
+    const postData = await postResponse.json();
+    console.log(`✅ Status: ${postResponse.status}`);
     
-    console.log(`⏱️  Tempo de resposta: ${duration}ms`);
-    console.log(`📊 Status: ${response.status} ${response.statusText}`);
-    
-    if (response.ok) {
-      const data = await response.json();
-      console.log(`✅ Sucesso! ${Array.isArray(data) ? data.length : 'Dados recebidos'}`);
+    if (postResponse.ok) {
+      console.log(`✅ Posição criada com ID: ${postData.id}`);
+      console.log(`📊 Dados:`, {
+        symbol: postData.symbol,
+        quantity: postData.quantity,
+        spotEntry: postData.spotEntry,
+        futuresEntry: postData.futuresEntry
+      });
       
-      if (Array.isArray(data)) {
-        console.log(`📋 Total de posições: ${data.length}`);
-        if (data.length > 0) {
-          console.log('📝 Primeira posição:', JSON.stringify(data[0], null, 2));
-        }
-      } else {
-        console.log('📝 Resposta:', JSON.stringify(data, null, 2));
-      }
+      // Teste 3: DELETE - Remover posição criada
+      console.log('');
+      console.log('🗑️  Teste 3: Removendo posição criada...');
+      const deleteResponse = await fetch(`${API_BASE}/positions?id=${postData.id}`, {
+        method: 'DELETE'
+      });
+      
+      const deleteData = await deleteResponse.json();
+      console.log(`✅ Status: ${deleteResponse.status}`);
+      console.log(`✅ Mensagem: ${deleteData.message}`);
     } else {
-      console.log('❌ Erro na resposta');
-      const errorText = await response.text();
-      console.log('📝 Detalhes do erro:', errorText);
+      console.log(`❌ Erro: ${postData.error}`);
     }
     
   } catch (error) {
-    console.error('💥 Erro na requisição:', error.message);
-    
-    if (error.code === 'ECONNREFUSED') {
-      console.log('🔌 Servidor não está rodando ou não acessível');
-    } else if (error.code === 'ENOTFOUND') {
-      console.log('🌐 Host não encontrado');
-    } else if (error.name === 'TimeoutError') {
-      console.log('⏰ Timeout na requisição');
-    }
+    console.error('❌ Erro no teste:', error.message);
   }
 }
 
-async function testDatabaseConnection() {
-  console.log('\n=== TESTE DE CONEXÃO COM BANCO ===');
-  
-  try {
-    // Verificar se o arquivo de configuração do Prisma existe
-    const fs = require('fs');
-    const path = require('path');
-    
-    const prismaSchemaPath = path.join(__dirname, '..', 'prisma', 'schema.prisma');
-    if (fs.existsSync(prismaSchemaPath)) {
-      console.log('✅ Schema do Prisma encontrado');
-    } else {
-      console.log('❌ Schema do Prisma não encontrado');
-    }
-    
-    // Verificar variáveis de ambiente
-    console.log('\n🔧 Variáveis de ambiente:');
-    console.log('- DATABASE_URL:', process.env.DATABASE_URL ? 'Definida' : 'Não definida');
-    console.log('- NODE_ENV:', process.env.NODE_ENV || 'Não definida');
-    
-  } catch (error) {
-    console.error('💥 Erro ao verificar configuração:', error.message);
-  }
-}
-
-async function main() {
-  console.log('🚀 Iniciando testes da API de posições...\n');
-  
-  await testDatabaseConnection();
-  await testPositionsAPI();
-  
-  console.log('\n=== SUGESTÕES DE SOLUÇÃO ===');
-  console.log('1. Verifique se o servidor está rodando: npm run dev');
-  console.log('2. Verifique a conexão com o banco de dados');
-  console.log('3. Verifique as variáveis de ambiente DATABASE_URL');
-  console.log('4. Execute: npx prisma db push (se necessário)');
-  console.log('5. Verifique os logs do servidor para mais detalhes');
-}
-
-main().catch(console.error); 
+// Executar teste
+testPositionsAPI(); 

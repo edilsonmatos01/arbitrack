@@ -94,13 +94,13 @@ export function useInitDataOptimized(userId: string = 'edilsonmatos') {
     fetchData();
   }, [userId]);
 
-  // Atualizar dados a cada 2 minutos
+  // Atualizar dados a cada 5 minutos (reduzido para melhor performance)
   useEffect(() => {
     const interval = setInterval(() => {
       if (!isLoading) {
         fetchData();
       }
-    }, 2 * 60 * 1000); // 2 minutos
+    }, 5 * 60 * 1000); // 5 minutos
 
     return () => clearInterval(interval);
   }, [isLoading, userId]);

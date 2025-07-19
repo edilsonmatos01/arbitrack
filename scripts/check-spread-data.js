@@ -1,98 +1,126 @@
 "use strict";
-const { Pool } = require('pg');
+const { PrismaClient } = require('@prisma/client');
 
-// URL correta do banco que contém os dados
-const DATABASE_URL = 'postgresql://arbitragem_banco_bdx8_user:eSa4DBin3bl9GI5DHmL9x1lXd4I329vT@dpg-d1i63eqdbo4c7387d2l0-a.oregon-postgres.render.com/arbitragem_banco_bdx8';
+console.log('🔍 VERIFICANDO DADOS DE SPREAD NO BANCO');
+console.log('========================================');
 
 async function checkSpreadData() {
-  const pool = new Pool({
-    connectionString: DATABASE_URL,
-    ssl: {
-      rejectUnauthorized: false
-    }
-  });
-
+  const prisma = new PrismaClient();
+  
   try {
-    console.log('🔍 Verificando dados da tabela SpreadHistory...\n');
-
-    // Verificar os últimos 10 registros com detalhes
-    const result = await pool.query(`
-      SELECT 
-        symbol,
-        spread,
-        "spotPrice",
-        "futuresPrice",
-        "exchangeBuy",
-        "exchangeSell",
-        direction,
-        timestamp
-      FROM "SpreadHistory" 
-      ORDER BY timestamp DESC 
-      LIMIT 10
-    `);
-
-    console.log('📊 Últimos 10 spreads no banco:');
-    result.rows.forEach((row, index) => {
-      console.log(`${index + 1}. ${row.symbol}`);
-      console.log(`   Spread: ${row.spread}%`);
-      console.log(`   Spot Price: ${row.spotPrice}`);
-      console.log(`   Futures Price: ${row.futuresPrice}`);
-      console.log(`   Exchange Buy: ${row.exchangeBuy}`);
-      console.log(`   Exchange Sell: ${row.exchangeSell}`);
-      console.log(`   Direction: ${row.direction}`);
-      console.log(`   Timestamp: ${row.timestamp}`);
-      console.log('');
-    });
-
-    // Verificar quantos registros têm preços zerados
-    const zeroPricesResult = await pool.query(`
-      SELECT COUNT(*) as count
-      FROM "SpreadHistory" 
-      WHERE "spotPrice" = 0 OR "futuresPrice" = 0 OR "spotPrice" IS NULL OR "futuresPrice" IS NULL
-    `);
-
-    console.log(`❌ Registros com preços zerados/nulos: ${zeroPricesResult.rows[0].count}`);
-
-    // Verificar quantos registros têm preços válidos
-    const validPricesResult = await pool.query(`
-      SELECT COUNT(*) as count
-      FROM "SpreadHistory" 
-      WHERE "spotPrice" > 0 AND "futuresPrice" > 0
-    `);
-
-    console.log(`✅ Registros com preços válidos: ${validPricesResult.rows[0].count}`);
-
-    // Buscar alguns registros com preços válidos
-    const validDataResult = await pool.query(`
-      SELECT 
-        symbol,
-        spread,
-        "spotPrice",
-        "futuresPrice",
-        "exchangeBuy",
-        "exchangeSell",
-        direction,
-        timestamp
-      FROM "SpreadHistory" 
-      WHERE "spotPrice" > 0 AND "futuresPrice" > 0
-      ORDER BY timestamp DESC 
-      LIMIT 5
-    `);
-
-    if (validDataResult.rows.length > 0) {
-      console.log('\n✅ Exemplos de registros com preços válidos:');
-      validDataResult.rows.forEach((row, index) => {
-        console.log(`${index + 1}. ${row.symbol} - Spread: ${row.spread}% - Spot: ${row.spotPrice} - Futures: ${row.futuresPrice}`);
-      });
-    } else {
-      console.log('\n❌ Nenhum registro com preços válidos encontrado!');
+    console.log('📡 Conectando ao banco de dados...');
+    await prisma.$connect();
+    console.log('✅ Conexão estabelecida!');
+    
+    // Verificar se há dados na tabela SpreadHistory
+    console.log('\n📊 Verificando tabela SpreadHistory...');
+    
+    const totalRecords = await prisma.spreadHistory.count();
+    console.log(`📈 Total de registros: ${totalRecords}`);
+    
+    if (totalRecords === 0) {
+      console.log('❌ Nenhum registro encontrado na tabela SpreadHistory');
+      console.log('⚠️ O worker pode não estar salvando dados no banco');
+      return;
     }
-
+    
+    // Verificar registros das últimas 24h
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    
+    const recentRecords = await prisma.spreadHistory.count({
+      where: {
+        timestamp: {
+          gte: twentyFourHoursAgo
+        }
+      }
+    });
+    
+    console.log(`📈 Registros das últimas 24h: ${recentRecords}`);
+    
+    // Verificar símbolos únicos
+    const uniqueSymbols = await prisma.spreadHistory.findMany({
+      select: {
+        symbol: true
+      },
+      distinct: ['symbol']
+    });
+    
+    console.log(`📈 Símbolos únicos: ${uniqueSymbols.length}`);
+    console.log('📋 Símbolos:', uniqueSymbols.map(s => s.symbol).join(', '));
+    
+    // Verificar registros mais recentes
+    console.log('\n📊 Últimos 5 registros:');
+    const recentData = await prisma.spreadHistory.findMany({
+      orderBy: {
+        timestamp: 'desc'
+      },
+      take: 5,
+      select: {
+        symbol: true,
+        spread: true,
+        timestamp: true,
+        exchangeBuy: true,
+        exchangeSell: true
+      }
+    });
+    
+    recentData.forEach((record, index) => {
+      console.log(`${index + 1}. ${record.symbol}: ${record.spread}% (${record.exchangeBuy} → ${record.exchangeSell}) - ${record.timestamp.toISOString()}`);
+    });
+    
+    // Verificar spread máximo por símbolo nas últimas 24h
+    console.log('\n📊 Spread máximo por símbolo (últimas 24h):');
+    
+    const maxSpreads = await prisma.spreadHistory.groupBy({
+      by: ['symbol'],
+      where: {
+        timestamp: {
+          gte: twentyFourHoursAgo
+        }
+      },
+      _max: {
+        spread: true
+      },
+      _count: {
+        id: true
+      }
+    });
+    
+    maxSpreads.forEach((item, index) => {
+      console.log(`${index + 1}. ${item.symbol}: ${item._max.spread}% (${item._count.id} registros)`);
+    });
+    
+    // Verificar se há dados para símbolos específicos da tabela
+    console.log('\n📊 Verificando símbolos específicos da tabela:');
+    const tableSymbols = ['VR_USDT', 'VVAIFU_USDT', 'DODO_USDT', 'GORK_USDT'];
+    
+    for (const symbol of tableSymbols) {
+      const symbolData = await prisma.spreadHistory.findMany({
+        where: {
+          symbol: symbol,
+          timestamp: {
+            gte: twentyFourHoursAgo
+          }
+        },
+        orderBy: {
+          timestamp: 'desc'
+        },
+        take: 1
+      });
+      
+      if (symbolData.length > 0) {
+        console.log(`✅ ${symbol}: ${symbolData[0].spread}% (${symbolData[0].timestamp.toISOString()})`);
+      } else {
+        console.log(`❌ ${symbol}: Nenhum dado encontrado`);
+      }
+    }
+    
   } catch (error) {
     console.error('❌ Erro ao verificar dados:', error);
   } finally {
-    await pool.end();
+    await prisma.$disconnect();
+    console.log('\n🔌 Conexão fechada');
   }
 }
 
-checkSpreadData();
+checkSpreadData().catch(console.error);

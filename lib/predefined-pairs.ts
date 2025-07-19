@@ -37,7 +37,7 @@ export const MEXC_FUTURES_PAIRS = MEXC_PAIRS.map(pair => pair.replace('_USDT', '
 // Configurações de monitoramento
 export const MONITORING_CONFIG = {
   updateInterval: 5000, // 5 segundos
-  minSpreadThreshold: 0.1, // Spread mínimo de 0.1%
+  minSpreadThreshold: 0.01, // Spread mínimo de 0.01% (reduzido para capturar mais oportunidades)
   maxSpreadThreshold: 50, // Spread máximo de 50%
   priceValidation: {
     minPrice: 0.000001, // Preço mínimo

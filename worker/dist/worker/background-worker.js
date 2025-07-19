@@ -39,6 +39,10 @@ const client_1 = require("@prisma/client");
 const http = __importStar(require("http"));
 const WebSocket = __importStar(require("ws"));
 const predefined_pairs_1 = require("../lib/predefined-pairs");
+const spread_tracker_1 = require("../lib/spread-tracker");
+// Importar conectores da versão anterior que funcionavam
+const gateio_connector_1 = require("../src/gateio-connector");
+const mexc_connector_1 = require("../src/mexc-connector");
 // Configurações
 const MONITORING_INTERVAL = 10 * 1000; // 10 segundos para atualizações em tempo real
 const PORT = process.env.PORT || 10000;
@@ -47,6 +51,8 @@ let isShuttingDown = false;
 let prisma = null;
 let wss = null;
 let connectedClients = [];
+// Estado dos preços de mercado
+let marketPrices = {};
 // Função para inicializar o Prisma
 async function initializePrisma() {
     console.log('[Worker] Inicializando conexão com banco de dados...');
@@ -88,58 +94,67 @@ function broadcastToClients(data) {
         }
     });
 }
-// Função para buscar preços reais do Gate.io
-async function fetchGateioRealTimePrices() {
-    try {
-        const response = await fetch('https://api.gateio.ws/api/v4/spot/tickers');
-        const data = await response.json();
-        const prices = {};
-        const monitoredPairs = (0, predefined_pairs_1.getMonitoredPairs)();
-        data.forEach((ticker) => {
-            if (monitoredPairs.includes(ticker.currency_pair)) {
-                prices[ticker.currency_pair] = {
-                    ask: parseFloat(ticker.lowest_ask),
-                    bid: parseFloat(ticker.highest_bid),
-                    last: parseFloat(ticker.last)
-                };
-            }
-        });
-        console.log(`[Worker] Gate.io: ${Object.keys(prices).length} pares encontrados`);
-        return prices;
+// Função para lidar com atualizações de preço dos conectores
+function handlePriceUpdate(update) {
+    const { identifier, symbol, marketType, bestAsk, bestBid } = update;
+    // Atualiza o estado central de preços
+    if (!marketPrices[identifier]) {
+        marketPrices[identifier] = {};
     }
-    catch (error) {
-        console.error('[Worker] Erro ao buscar preços do Gate.io:', error);
-        return {};
-    }
+    marketPrices[identifier][symbol] = { bestAsk, bestBid, timestamp: Date.now() };
+    // Transmite a atualização para todos os clientes
+    broadcastToClients({
+        type: 'price-update',
+        symbol,
+        marketType,
+        bestAsk,
+        bestBid
+    });
 }
-// Função para gerar oportunidades usando dados reais do Gate.io
-async function generateRealOpportunities() {
+// Função para gerar oportunidades de arbitragem
+async function generateArbitrageOpportunities() {
     const monitoredPairs = (0, predefined_pairs_1.getMonitoredPairs)();
     const opportunities = [];
     try {
-        console.log(`[Worker] Gerando oportunidades reais para ${monitoredPairs.length} pares...`);
-        // Buscar preços reais do Gate.io
-        const gateioPrices = await fetchGateioRealTimePrices();
-        // Gerar oportunidades baseadas em preços reais
-        for (const [symbol, price] of Object.entries(gateioPrices)) {
-            const priceData = price;
-            // Simular spread entre spot e futures (usando variação de preço)
-            const spotPrice = priceData.last;
-            const futuresPrice = spotPrice * (1 + (Math.random() - 0.5) * 0.02); // ±1% variação
-            const spread = Math.abs(((futuresPrice - spotPrice) / spotPrice) * 100);
-            // Só incluir se o spread for significativo
-            if (spread >= predefined_pairs_1.MONITORING_CONFIG.minSpreadThreshold &&
-                spread <= predefined_pairs_1.MONITORING_CONFIG.maxSpreadThreshold &&
-                spotPrice >= predefined_pairs_1.MONITORING_CONFIG.priceValidation.minPrice &&
-                spotPrice <= predefined_pairs_1.MONITORING_CONFIG.priceValidation.maxPrice) {
+        console.log(`[Worker] Gerando oportunidades para ${monitoredPairs.length} pares...`);
+        for (const symbol of monitoredPairs) {
+            const gateioData = marketPrices['gateio']?.[symbol];
+            const mexcData = marketPrices['mexc']?.[symbol];
+            if (!gateioData || !mexcData)
+                continue;
+            // Verifica se os preços são válidos
+            if (!isFinite(gateioData.bestAsk) || !isFinite(gateioData.bestBid) ||
+                !isFinite(mexcData.bestAsk) || !isFinite(mexcData.bestBid)) {
+                continue;
+            }
+            // Calcula oportunidades de arbitragem
+            const gateioToMexc = ((mexcData.bestBid - gateioData.bestAsk) / gateioData.bestAsk) * 100;
+            const mexcToGateio = ((gateioData.bestBid - mexcData.bestAsk) / mexcData.bestAsk) * 100;
+            // Processa oportunidade Gate.io SPOT -> MEXC FUTURES
+            if (gateioToMexc >= predefined_pairs_1.MONITORING_CONFIG.minSpreadThreshold &&
+                gateioToMexc <= predefined_pairs_1.MONITORING_CONFIG.maxSpreadThreshold) {
                 opportunities.push({
                     symbol,
-                    spread: spread,
-                    spotPrice: spotPrice,
-                    futuresPrice: futuresPrice,
+                    spread: gateioToMexc,
+                    spotPrice: gateioData.bestAsk,
+                    futuresPrice: mexcData.bestBid,
                     exchangeBuy: 'gateio',
                     exchangeSell: 'mexc',
                     direction: 'spot_to_futures',
+                    timestamp: new Date()
+                });
+            }
+            // Processa oportunidade MEXC FUTURES -> Gate.io SPOT
+            if (mexcToGateio >= predefined_pairs_1.MONITORING_CONFIG.minSpreadThreshold &&
+                mexcToGateio <= predefined_pairs_1.MONITORING_CONFIG.maxSpreadThreshold) {
+                opportunities.push({
+                    symbol,
+                    spread: mexcToGateio,
+                    spotPrice: gateioData.bestBid,
+                    futuresPrice: mexcData.bestAsk,
+                    exchangeBuy: 'mexc',
+                    exchangeSell: 'gateio',
+                    direction: 'futures_to_spot',
                     timestamp: new Date()
                 });
             }
@@ -165,8 +180,8 @@ async function monitorAndStore() {
         isWorkerRunning = true;
         console.log(`[Worker ${new Date().toLocaleTimeString()}] Monitoramento ativo - Gerando oportunidades reais`);
         // Gerar oportunidades reais
-        const realOpportunities = await generateRealOpportunities();
-        // Enviar oportunidades via WebSocket
+        const realOpportunities = await generateArbitrageOpportunities();
+        // Enviar oportunidades via WebSocket e salvar no banco
         let opportunitiesSent = 0;
         for (const opportunity of realOpportunities) {
             const opportunityData = {
@@ -181,6 +196,20 @@ async function monitorAndStore() {
                 direction: opportunity.direction
             };
             broadcastToClients(opportunityData);
+            // Salvar no banco de dados
+            try {
+                await (0, spread_tracker_1.recordSpread)({
+                    symbol: opportunity.symbol,
+                    exchangeBuy: opportunity.exchangeBuy,
+                    exchangeSell: opportunity.exchangeSell,
+                    direction: opportunity.direction === 'spot_to_futures' ? 'spot-to-future' : 'future-to-spot',
+                    spread: opportunity.spread
+                });
+                console.log(`[Worker] 💾 Dados salvos no banco: ${opportunity.symbol} - ${opportunity.spread.toFixed(4)}%`);
+            }
+            catch (error) {
+                console.error(`[Worker] ❌ Erro ao salvar no banco: ${opportunity.symbol}`, error);
+            }
             opportunitiesSent++;
             console.log(`[Worker] ✅ Oportunidade enviada: ${opportunity.symbol} - ${opportunity.spread.toFixed(4)}% - Spot: ${opportunity.spotPrice} - Futures: ${opportunity.futuresPrice}`);
         }
@@ -199,6 +228,24 @@ async function monitorAndStore() {
     }
     finally {
         isWorkerRunning = false;
+    }
+}
+// Função para iniciar os conectores
+async function startConnectors() {
+    console.log('[Worker] Iniciando conectores...');
+    try {
+        const gateio = new gateio_connector_1.GateioConnector();
+        const mexc = new mexc_connector_1.MexcConnector();
+        // Configurar callbacks de atualização de preço
+        gateio.onPriceUpdate(handlePriceUpdate);
+        mexc.onPriceUpdate(handlePriceUpdate);
+        // Conectar aos feeds
+        await gateio.connect();
+        await mexc.connect();
+        console.log('[Worker] ✅ Conectores iniciados com sucesso');
+    }
+    catch (error) {
+        console.error('[Worker] Erro ao iniciar conectores:', error);
     }
 }
 // Criar servidor HTTP e WebSocket
@@ -247,6 +294,8 @@ async function startWorker() {
     try {
         // Inicializar Prisma
         await initializePrisma();
+        // Iniciar conectores
+        await startConnectors();
         // Criar servidor HTTP e WebSocket
         const server = createServer();
         // Iniciar servidor

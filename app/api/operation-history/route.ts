@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import dbConnection from '@/lib/db-connection';
+import { PrismaClient } from '@prisma/client';
 
 // GET - Buscar histórico de operações com filtros
 export async function GET(req: NextRequest) {
@@ -16,16 +16,23 @@ export async function GET(req: NextRequest) {
 
     console.log('🔍 Parâmetros da busca:', { filter, startDate, endDate, symbol });
 
-    // Tentar buscar do banco usando conexão direta
+    // Tentar buscar do banco usando Prisma
     try {
       console.log('🗄️ Executando consulta no banco de dados...');
       
+      const prisma = new PrismaClient();
+      
       // Primeiro, vamos contar quantos registros existem no total
-      const totalCount = await dbConnection.getOperationHistoryCount();
+      const totalCount = await prisma.operationHistory.count();
       console.log('📊 Total de operações no banco:', totalCount);
       
       // Buscar operações
-      const operations = await dbConnection.getOperationHistory(100);
+      const operations = await prisma.operationHistory.findMany({
+        take: 100,
+        orderBy: {
+          finalizedAt: 'desc'
+        }
+      });
       console.log('✅ Operações encontradas:', operations.length);
       
       // Log detalhado das operações
@@ -82,6 +89,8 @@ export async function GET(req: NextRequest) {
       
       console.log('📋 Operações filtradas:', filteredOperations.length);
       console.log('📤 Retornando dados para o frontend...');
+      
+      await prisma.$disconnect();
       return NextResponse.json(filteredOperations);
       
     } catch (dbError) {
@@ -145,36 +154,31 @@ export async function POST(req: NextRequest) {
       finalizedAt: new Date().toISOString()
     };
 
-    // Tentar salvar no banco de dados usando conexão direta
+    // Tentar salvar no banco de dados usando Prisma
     try {
-      const query = `
-        INSERT INTO "OperationHistory" (
-          id, symbol, quantity, "spotEntryPrice", "futuresEntryPrice", 
-          "spotExitPrice", "futuresExitPrice", "spotExchange", "futuresExchange", 
-          "profitLossUsd", "profitLossPercent", "createdAt", "finalizedAt"
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        RETURNING *
-      `;
+      const prisma = new PrismaClient();
       
-      const params = [
-        operation.id,
-        symbol,
-        quantity,
-        spotEntryPrice,
-        futuresEntryPrice,
-        spotExitPrice,
-        futuresExitPrice,
-        spotExchange,
-        futuresExchange,
-        profitLossUsd || 0,
-        profitLossPercent || 0,
-        createdAt ? new Date(createdAt) : new Date(),
-        new Date()
-      ];
+      const result = await prisma.operationHistory.create({
+        data: {
+          id: operation.id,
+          symbol,
+          quantity,
+          spotEntryPrice,
+          futuresEntryPrice,
+          spotExitPrice,
+          futuresExitPrice,
+          spotExchange,
+          futuresExchange,
+          profitLossUsd: profitLossUsd || 0,
+          profitLossPercent: profitLossPercent || 0,
+          createdAt: createdAt ? new Date(createdAt) : new Date(),
+          finalizedAt: new Date()
+        }
+      });
       
-      const result = await dbConnection.executeQuery(query, params);
-      console.log('✅ Salvo no banco de dados:', result[0]);
-      return NextResponse.json(result[0]);
+      await prisma.$disconnect();
+      console.log('✅ Salvo no banco de dados:', result);
+      return NextResponse.json(result);
     } catch (dbError) {
       console.error('[API] Erro no banco, usando fallback:', dbError);
       // Continua com fallback
@@ -202,26 +206,27 @@ export async function DELETE(req: NextRequest) {
 
     console.log('🗑️ Excluindo operação:', operationId);
 
-    // Tentar excluir do banco de dados se disponível
-    if (dbConnection) {
-      try {
-        const query = `
-          DELETE FROM "OperationHistory" WHERE id = $1
-          RETURNING *
-        `;
-        const params = [operationId];
-        const result = await dbConnection.executeQuery(query, params);
-        console.log('✅ Operação excluída do banco:', result[0]);
-        return NextResponse.json({ success: true, deletedOperation: result[0] });
-      } catch (dbError) {
-        if (dbError instanceof Error && 'code' in dbError && dbError.code === 'P2025') {
-          // Record not found
-          console.log('[API] Operação não encontrada no banco:', operationId);
-          return NextResponse.json({ error: 'Operação não encontrada' }, { status: 404 });
+    // Tentar excluir do banco de dados usando Prisma
+    try {
+      const prisma = new PrismaClient();
+      
+      const result = await prisma.operationHistory.delete({
+        where: {
+          id: operationId
         }
-        console.error('[API] Erro no banco ao excluir:', dbError);
-        return NextResponse.json({ error: 'Erro ao excluir do banco de dados' }, { status: 500 });
+      });
+      
+      await prisma.$disconnect();
+      console.log('✅ Operação excluída do banco:', result);
+      return NextResponse.json({ success: true, deletedOperation: result });
+    } catch (dbError) {
+      if (dbError instanceof Error && 'code' in dbError && dbError.code === 'P2025') {
+        // Record not found
+        console.log('[API] Operação não encontrada no banco:', operationId);
+        return NextResponse.json({ error: 'Operação não encontrada' }, { status: 404 });
       }
+      console.error('[API] Erro no banco ao excluir:', dbError);
+      return NextResponse.json({ error: 'Erro ao excluir do banco de dados' }, { status: 500 });
     }
 
     // Fallback: apenas retornar sucesso (já que não temos banco)
