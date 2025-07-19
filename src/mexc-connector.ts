@@ -1,6 +1,5 @@
 import WebSocket from 'ws';
 import fetch from 'node-fetch';
-import { CustomWebSocket, ExchangeConnector, PriceUpdate } from './types';
 
 interface MexcContract {
     symbol: string;
@@ -8,7 +7,20 @@ interface MexcContract {
     futureType: number;
 }
 
-export class MexcConnector implements ExchangeConnector {
+interface PriceUpdate {
+    identifier: string;
+    symbol: string;
+    type: string;
+    marketType: string;
+    bestAsk: number;
+    bestBid: number;
+}
+
+interface CustomWebSocket extends WebSocket {
+    isAlive?: boolean;
+}
+
+export class MexcConnector {
     private ws: CustomWebSocket | null = null;
     private priceUpdateCallback: ((update: PriceUpdate) => void) | null = null;
     private readonly wsUrl = 'wss://contract.mexc.com/edge';
@@ -90,36 +102,27 @@ export class MexcConnector implements ExchangeConnector {
 
     private async getSymbols(): Promise<string[]> {
         try {
-            const response = await fetch(this.restUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
+            // Usar apenas a lista pré-definida para otimizar performance
+            const predefinedPairs = [
+                '1DOLLAR_USDT', 'ACA_USDT', 'ACE_USDT', 'ACS_USDT', 'ACT_USDT', 'AEVO_USDT', 'AGLD_USDT', 'AIC_USDT', 'ALU_USDT', 'ANON_USDT',
+                'APX_USDT', 'ARKM_USDT', 'AR_USDT', 'AUCTION_USDT', 'B2_USDT', 'BLUR_USDT', 'BLZ_USDT', 'BOOP_USDT', 'BOTIFY_USDT', 'BOXCAT_USDT',
+                'BRISE_USDT', 'BR_USDT', 'BUBB_USDT', 'CBK_USDT', 'CHESS_USDT', 'CKB_USDT', 'CPOOL_USDT', 'CUDIS_USDT', 'DADDY_USDT', 'DAG_USDT',
+                'DEGEN_USDT', 'DEAI_USDT', 'DODO_USDT', 'DEVVE_USDT', 'DOGINME_USDT', 'ENJ_USDT', 'BTC_USDT', 'G7_USDT', 'NAKA_USDT', 'VR_USDT',
+                'WMTX_USDT', 'PIN_USDT', 'WILD_USDT', 'BFTOKEN_USDT', 'VELAAI_USDT', 'GEAR_USDT', 'GNC_USDT', 'SUPRA_USDT', 'MAGA_USDT',
+                'TARA_USDT', 'BERT_USDT', 'AO_USDT', 'EDGE_USDT', 'FARM_USDT', 'VVAIFU_USDT', 'PEPECOIN_USDT', 'TREAT_USDT', 'ALPACA_USDT',
+                'RBNT_USDT', 'TOMI_USDT', 'LUCE_USDT', 'WAXP_USDT', 'NAVX_USDT', 'WHITE_USDT', 'RIFSOL_USDT', 'ALCX_USDT', 'GORK_USDT',
+                'ALPINE_USDT', 'CITY_USDT', 'ILV_USDT', 'CATTON_USDT', 'ORAI_USDT', 'HOLD_USDT', 'ALICE_USDT', 'SYS_USDT', 'PSG_USDT',
+                'POND_USDT', 'SPEC_USDT', 'LAVA_USDT', 'MAT_USDT', 'REX_USDT', 'LUNAI_USDT', 'MORE_USDT', 'B_USDT', 'RED_USDT', 'GTC_USDT',
+                'TALE_USDT', 'RWA_USDT', 'MGO_USDT', 'CESS_USDT', 'QUBIC_USDT', 'TEL_USDT', 'SHM_USDT', 'DOLO_USDT', 'LABUBU_USDT',
+                'ZIG_USDT', 'BAR_USDT', 'GROK_USDT', 'MASA_USDT', 'XEM_USDT', 'ULTI_USDT', 'LUMIA_USDT', 'PONKE_USDT'
+            ];
             
-            if (data && data.data && Array.isArray(data.data)) {
-                return data.data
-                    .filter((contract: MexcContract) => 
-                        contract.quoteCoin === 'USDT' && 
-                        contract.futureType === 1 && 
-                        !contract.symbol.includes('_INDEX_')
-                    )
-                    .map((contract: MexcContract) => contract.symbol);
-            }
+            console.log(`[MEXC API] ✅ Usando lista pré-definida: ${predefinedPairs.length} pares`);
+            console.log(`[MEXC API] Primeiros 5: ${predefinedPairs.slice(0, 5).join(', ')}`);
             
-            console.warn('Formato de resposta inválido da MEXC, usando lista padrão');
-            return this.relevantPairs;
+            return predefinedPairs;
         } catch (error) {
-            console.error('Erro ao buscar símbolos da MEXC:', error);
+            console.error('[MEXC API] Erro ao obter símbolos:', error);
             return this.relevantPairs;
         }
     }

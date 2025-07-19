@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events';
 interface PriceUpdate {
     identifier: string;
     symbol: string;
@@ -9,7 +10,7 @@ interface PriceUpdate {
  * Gerencia a conexão WebSocket e as inscrições para os feeds da Gate.io.
  * Pode ser configurado para SPOT ou FUTURES.
  */
-export declare class GateIoConnector {
+export declare class GateIoConnector extends EventEmitter {
     private ws;
     private marketIdentifier;
     private marketType;

@@ -6,6 +6,10 @@ import * as http from 'http';
 import * as WebSocket from 'ws';
 import { getMonitoredPairs, MONITORING_CONFIG } from '../lib/predefined-pairs';
 
+// Importar conectores da versão anterior que funcionavam
+import { GateioConnector } from '../src/gateio-connector';
+import { MexcConnector } from '../src/mexc-connector';
+
 // Configurações
 const MONITORING_INTERVAL = 10 * 1000; // 10 segundos para atualizações em tempo real
 const PORT = process.env.PORT || 10000;
@@ -14,6 +18,9 @@ let isShuttingDown = false;
 let prisma: PrismaClient | null = null;
 let wss: any = null;
 let connectedClients: WebSocket[] = [];
+
+// Estado dos preços de mercado
+let marketPrices: any = {};
 
 // Função para inicializar o Prisma
 async function initializePrisma(): Promise<void> {
@@ -56,126 +63,91 @@ function broadcastToClients(data: any): void {
   });
 }
 
-// Função para buscar preços reais do Gate.io
-async function fetchGateioRealTimePrices(): Promise<any> {
-  try {
-    const response = await fetch('https://api.gateio.ws/api/v4/spot/tickers');
-    const data = await response.json() as any[];
-    
-    const prices: any = {};
-    const monitoredPairs = getMonitoredPairs();
-    
-    data.forEach((ticker: any) => {
-      if (monitoredPairs.includes(ticker.currency_pair)) {
-        prices[ticker.currency_pair] = {
-          ask: parseFloat(ticker.lowest_ask),
-          bid: parseFloat(ticker.highest_bid),
-          last: parseFloat(ticker.last)
-        };
-      }
-    });
-    
-    console.log(`[Worker] Gate.io: ${Object.keys(prices).length} pares encontrados`);
-    return prices;
-  } catch (error) {
-    console.error('[Worker] Erro ao buscar preços do Gate.io:', error);
-    return {};
+// Função para lidar com atualizações de preço dos conectores
+function handlePriceUpdate(update: any) {
+  const { identifier, symbol, marketType, bestAsk, bestBid } = update;
+
+  // Atualiza o estado central de preços
+  if (!marketPrices[identifier]) {
+    marketPrices[identifier] = {};
   }
+  marketPrices[identifier][symbol] = { bestAsk, bestBid, timestamp: Date.now() };
+  
+  // Transmite a atualização para todos os clientes
+  broadcastToClients({
+    type: 'price-update',
+    symbol,
+    marketType,
+    bestAsk,
+    bestBid
+  });
 }
 
-// Função para buscar dados reais das exchanges e banco
-async function fetchRealTimeOpportunities(): Promise<any[]> {
+// Função para gerar oportunidades de arbitragem
+async function generateArbitrageOpportunities(): Promise<any[]> {
   const monitoredPairs = getMonitoredPairs();
   const opportunities: any[] = [];
 
   try {
-    console.log(`[Worker] Buscando oportunidades em tempo real para ${monitoredPairs.length} pares...`);
+    console.log(`[Worker] Gerando oportunidades para ${monitoredPairs.length} pares...`);
 
-    // Buscar preços reais do Gate.io
-    const gateioPrices = await fetchGateioRealTimePrices();
-    
-    // Buscar dados históricos válidos do banco para completar as oportunidades
-    if (prisma) {
-      const recentData = await prisma.spreadHistory.findMany({
-        where: {
-          symbol: { in: monitoredPairs },
-          spotPrice: { gt: 0 },
-          futuresPrice: { gt: 0 },
-          timestamp: {
-            gte: new Date(Date.now() - 30 * 60 * 1000) // Últimos 30 minutos
-          }
-        },
-        orderBy: { timestamp: 'desc' },
-        take: 50
-      });
+    for (const symbol of monitoredPairs) {
+      const gateioData = marketPrices['gateio']?.[symbol];
+      const mexcData = marketPrices['mexc']?.[symbol];
 
-      console.log(`[Worker] Encontrados ${recentData.length} registros recentes no banco`);
+      if (!gateioData || !mexcData) continue;
 
-      // Processar dados do Gate.io com dados históricos
-      for (const [symbol, gateioPrice] of Object.entries(gateioPrices)) {
-        // Buscar dados históricos para este símbolo
-        const historicalData = recentData.filter(d => d.symbol === symbol);
-        
-        if (historicalData.length > 0) {
-          const latestData = historicalData[0];
-          const price = gateioPrice as { last: number; ask: number; bid: number };
-          
-          // Criar oportunidade usando preço real do Gate.io e dados históricos
-          const spread = ((price.last - latestData.spotPrice) / latestData.spotPrice) * 100;
-          
-          if (Math.abs(spread) >= MONITORING_CONFIG.minSpreadThreshold && 
-              Math.abs(spread) <= MONITORING_CONFIG.maxSpreadThreshold) {
-            
-                         opportunities.push({
-               symbol,
-               spread: Math.abs(spread),
-               spotPrice: price.last, // Preço real do Gate.io
-               futuresPrice: latestData.futuresPrice, // Dados históricos
-               exchangeBuy: spread > 0 ? 'gateio' : latestData.exchangeBuy,
-               exchangeSell: spread > 0 ? latestData.exchangeSell : 'gateio',
-               direction: 'spot_to_futures',
-               timestamp: new Date()
-             });
-          }
-        }
+      // Verifica se os preços são válidos
+      if (!isFinite(gateioData.bestAsk) || !isFinite(gateioData.bestBid) ||
+          !isFinite(mexcData.bestAsk) || !isFinite(mexcData.bestBid)) {
+        continue;
       }
 
-      // Também incluir oportunidades baseadas apenas em dados históricos válidos
-      for (const data of recentData.slice(0, 20)) {
-        if (data.spread >= MONITORING_CONFIG.minSpreadThreshold && 
-            data.spread <= MONITORING_CONFIG.maxSpreadThreshold &&
-            data.spotPrice >= MONITORING_CONFIG.priceValidation.minPrice &&
-            data.spotPrice <= MONITORING_CONFIG.priceValidation.maxPrice &&
-            data.futuresPrice >= MONITORING_CONFIG.priceValidation.minPrice &&
-            data.futuresPrice <= MONITORING_CONFIG.priceValidation.maxPrice) {
-          
-          opportunities.push({
-            symbol: data.symbol,
-            spread: data.spread,
-            spotPrice: data.spotPrice,
-            futuresPrice: data.futuresPrice,
-            exchangeBuy: data.exchangeBuy,
-            exchangeSell: data.exchangeSell,
-            direction: data.direction,
-            timestamp: data.timestamp
-          });
-        }
+      // Calcula oportunidades de arbitragem
+      const gateioToMexc = ((mexcData.bestBid - gateioData.bestAsk) / gateioData.bestAsk) * 100;
+      const mexcToGateio = ((gateioData.bestBid - mexcData.bestAsk) / mexcData.bestAsk) * 100;
+
+      // Processa oportunidade Gate.io SPOT -> MEXC FUTURES
+      if (gateioToMexc >= MONITORING_CONFIG.minSpreadThreshold && 
+          gateioToMexc <= MONITORING_CONFIG.maxSpreadThreshold) {
+        opportunities.push({
+          symbol,
+          spread: gateioToMexc,
+          spotPrice: gateioData.bestAsk,
+          futuresPrice: mexcData.bestBid,
+          exchangeBuy: 'gateio',
+          exchangeSell: 'mexc',
+          direction: 'spot_to_futures',
+          timestamp: new Date()
+        });
+      }
+
+      // Processa oportunidade MEXC FUTURES -> Gate.io SPOT
+      if (mexcToGateio >= MONITORING_CONFIG.minSpreadThreshold && 
+          mexcToGateio <= MONITORING_CONFIG.maxSpreadThreshold) {
+        opportunities.push({
+          symbol,
+          spread: mexcToGateio,
+          spotPrice: gateioData.bestBid,
+          futuresPrice: mexcData.bestAsk,
+          exchangeBuy: 'mexc',
+          exchangeSell: 'gateio',
+          direction: 'futures_to_spot',
+          timestamp: new Date()
+        });
       }
     }
 
-    // Remover duplicatas e ordenar por spread
-    const uniqueOpportunities = opportunities
-      .filter((opp, index, self) => 
-        index === self.findIndex(o => o.symbol === opp.symbol)
-      )
+    // Ordenar por spread e limitar a 20 melhores oportunidades
+    const sortedOpportunities = opportunities
       .sort((a, b) => b.spread - a.spread)
-      .slice(0, 20); // Limitar a 20 melhores oportunidades
+      .slice(0, 20);
 
-    console.log(`[Worker] Encontradas ${uniqueOpportunities.length} oportunidades válidas`);
-    return uniqueOpportunities;
+    console.log(`[Worker] Geradas ${sortedOpportunities.length} oportunidades válidas`);
+    return sortedOpportunities;
 
   } catch (error) {
-    console.error('[Worker] Erro ao buscar oportunidades em tempo real:', error);
+    console.error('[Worker] Erro ao gerar oportunidades:', error);
     return [];
   }
 }
@@ -188,14 +160,14 @@ async function monitorAndStore(): Promise<void> {
 
   try {
     isWorkerRunning = true;
-    console.log(`[Worker ${new Date().toLocaleTimeString()}] Monitoramento ativo - Buscando dados em tempo real`);
+    console.log(`[Worker ${new Date().toLocaleTimeString()}] Monitoramento ativo - Gerando oportunidades reais`);
     
-    // Buscar oportunidades em tempo real
-    const realTimeOpportunities = await fetchRealTimeOpportunities();
+    // Gerar oportunidades reais
+    const realOpportunities = await generateArbitrageOpportunities();
     
     // Enviar oportunidades via WebSocket
     let opportunitiesSent = 0;
-    for (const opportunity of realTimeOpportunities) {
+    for (const opportunity of realOpportunities) {
       const opportunityData = {
         type: 'opportunity',
         symbol: opportunity.symbol,
@@ -228,6 +200,29 @@ async function monitorAndStore(): Promise<void> {
     console.error('[Worker] Erro no monitoramento:', error);
   } finally {
     isWorkerRunning = false;
+  }
+}
+
+// Função para iniciar os conectores
+async function startConnectors(): Promise<void> {
+  console.log('[Worker] Iniciando conectores...');
+  
+  try {
+    const gateio = new GateioConnector();
+    const mexc = new MexcConnector();
+
+    // Configurar callbacks de atualização de preço
+    gateio.onPriceUpdate(handlePriceUpdate);
+    mexc.onPriceUpdate(handlePriceUpdate);
+
+    // Conectar aos feeds
+    await gateio.connect();
+    await mexc.connect();
+
+    console.log('[Worker] ✅ Conectores iniciados com sucesso');
+    
+  } catch (error) {
+    console.error('[Worker] Erro ao iniciar conectores:', error);
   }
 }
 
@@ -285,6 +280,9 @@ async function startWorker(): Promise<void> {
   try {
     // Inicializar Prisma
     await initializePrisma();
+    
+    // Iniciar conectores
+    await startConnectors();
     
     // Criar servidor HTTP e WebSocket
     const server = createServer();

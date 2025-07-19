@@ -1,26 +1,21 @@
-export declare class MexcFuturesConnector {
+import { EventEmitter } from 'events';
+export declare class MexcFuturesConnector extends EventEmitter {
     private ws;
     private readonly identifier;
     private readonly onPriceUpdate;
     private readonly onConnect;
     private isConnected;
+    private isConnecting;
     private reconnectAttempts;
     private readonly maxReconnectAttempts;
     private readonly reconnectDelay;
-    private readonly WS_URL;
     private readonly REST_URL;
     private subscribedSymbols;
-    private heartbeatInterval;
-    private readonly HEARTBEAT_INTERVAL;
-    private reconnectTimeout;
-    constructor(identifier: string, onPriceUpdate: Function, onConnect: Function);
+    constructor(identifier: string, onPriceUpdate: (data: any) => void, onConnect: () => void);
+    connect(): void;
     private startHeartbeat;
-    private stopHeartbeat;
-    private cleanup;
     private handleDisconnect;
-    connect(): Promise<void>;
-    subscribe(pairs: string[]): void;
-    private resubscribeAll;
+    subscribe(symbols: string[]): void;
     disconnect(): void;
     getTradablePairs(): Promise<string[]>;
 }

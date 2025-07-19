@@ -100,7 +100,7 @@ export class MexcConnector extends EventEmitter {
                     const message = JSON.parse(data.toString());
                     this.lastPingTime = Date.now();
                     
-                    if (message.c === 'spot.ticker') {
+                    if (message.c === 'spot.ticker' || message.c === 'spot@ticker') {
                         const ticker = message.d;
                         const pair = ticker.s.replace('_', '/').toUpperCase();
                         
@@ -113,6 +113,8 @@ export class MexcConnector extends EventEmitter {
                             console.log(`[${this.marketIdentifier}] Preços inválidos recebidos:`, ticker);
                             return;
                         }
+
+                        console.log(`[${this.marketIdentifier}] ✅ Dados recebidos: ${pair} - Ask: $${priceData.bestAsk}, Bid: $${priceData.bestBid}`);
 
                         this.onPriceUpdate({
                             type: 'price-update',
@@ -248,7 +250,7 @@ export class MexcConnector extends EventEmitter {
                 
                 const formattedSymbol = symbol.replace('/', '').toLowerCase();
                 const msg = {
-                    method: 'sub.ticker',
+                    method: 'sub.spot@ticker',
                     param: {
                         symbol: formattedSymbol
                     },

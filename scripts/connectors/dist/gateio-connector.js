@@ -6,13 +6,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.GateIoConnector = void 0;
 const ws_1 = __importDefault(require("ws"));
 const node_fetch_1 = __importDefault(require("node-fetch"));
+const events_1 = require("events");
 const GATEIO_WS_URL = 'wss://api.gateio.ws/ws/v4/';
 /**
  * Gerencia a conexão WebSocket e as inscrições para os feeds da Gate.io.
  * Pode ser configurado para SPOT ou FUTURES.
  */
-class GateIoConnector {
+class GateIoConnector extends events_1.EventEmitter {
     constructor(identifier, priceUpdateCallback) {
+        super();
         this.ws = null;
         this.subscriptionQueue = [];
         this.pingInterval = null;

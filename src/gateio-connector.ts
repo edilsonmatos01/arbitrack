@@ -1,6 +1,5 @@
 import WebSocket from 'ws';
 import fetch from 'node-fetch';
-import { CustomWebSocket, ExchangeConnector, PriceUpdate } from './types';
 
 interface GateioSpotSymbol {
     id: string;
@@ -16,11 +15,24 @@ interface GateioSpotSymbol {
     buy_start: number;
 }
 
+interface PriceUpdate {
+    identifier: string;
+    symbol: string;
+    type: string;
+    marketType: string;
+    bestAsk: number;
+    bestBid: number;
+}
+
+interface CustomWebSocket extends WebSocket {
+    isAlive?: boolean;
+}
+
 /**
  * Conector para Gate.io SPOT (não futures)
  * Usado para a estratégia: Comprar Gate.io Spot -> Vender MEXC Futures
  */
-export class GateioConnector implements ExchangeConnector {
+export class GateioConnector {
     private ws: CustomWebSocket | null = null;
     private priceUpdateCallback: ((update: PriceUpdate) => void) | null = null;
     private readonly wsUrl = 'wss://api.gateio.ws/ws/v4/';
@@ -83,37 +95,25 @@ export class GateioConnector implements ExchangeConnector {
 
     private async getSpotSymbols(): Promise<string[]> {
         try {
-            console.log('[GATEIO API] Buscando símbolos SPOT...');
-            const response = await fetch(this.restUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log(`[GATEIO API] Resposta recebida: ${Array.isArray(data) ? data.length : 0} símbolos`);
+            // Usar apenas a lista pré-definida para otimizar performance
+            const predefinedPairs = [
+                '1DOLLAR_USDT', 'ACA_USDT', 'ACE_USDT', 'ACS_USDT', 'ACT_USDT', 'AEVO_USDT', 'AGLD_USDT', 'AIC_USDT', 'ALU_USDT', 'ANON_USDT',
+                'APX_USDT', 'ARKM_USDT', 'AR_USDT', 'AUCTION_USDT', 'B2_USDT', 'BLUR_USDT', 'BLZ_USDT', 'BOOP_USDT', 'BOTIFY_USDT', 'BOXCAT_USDT',
+                'BRISE_USDT', 'BR_USDT', 'BUBB_USDT', 'CBK_USDT', 'CHESS_USDT', 'CKB_USDT', 'CPOOL_USDT', 'DADDY_USDT', 'DAG_USDT', 'DEGEN_USDT',
+                'DEAI_USDT', 'DODO_USDT', 'DEVVE_USDT', 'DOGINME_USDT', 'BTC_USDT', 'G7_USDT', 'NAKA_USDT', 'VR_USDT', 'WMTX_USDT', 'PIN_USDT',
+                'WILD_USDT', 'BFTOKEN_USDT', 'VELAAI_USDT', 'GEAR_USDT', 'GNC_USDT', 'SUPRA_USDT', 'MAGA_USDT', 'TARA_USDT', 'BERT_USDT',
+                'AO_USDT', 'EDGE_USDT', 'FARM_USDT', 'VVAIFU_USDT', 'PEPECOIN_USDT', 'TREAT_USDT', 'ALPACA_USDT', 'RBNT_USDT', 'TOMI_USDT',
+                'LUCE_USDT', 'WAXP_USDT', 'NAVX_USDT', 'WHITE_USDT', 'RIFSOL_USDT', 'ALCX_USDT', 'GORK_USDT', 'ALPINE_USDT', 'CITY_USDT',
+                'ILV_USDT', 'CATTON_USDT', 'ORAI_USDT', 'HOLD_USDT', 'SYS_USDT', 'POND_USDT', 'SPEC_USDT', 'LAVA_USDT', 'MAT_USDT',
+                'LUNAI_USDT', 'MORE_USDT', 'MGO_USDT', 'GROK_USDT'
+            ];
             
-            if (Array.isArray(data)) {
-                const usdtPairs = data
-                    .filter((pair: GateioSpotSymbol) => 
-                        pair.quote === 'USDT' && 
-                        pair.trade_status === 'tradable'
-                    )
-                    .map((pair: GateioSpotSymbol) => `${pair.base}_${pair.quote}`);
-                
-                console.log(`[GATEIO API] ✅ ${usdtPairs.length} pares USDT encontrados`);
-                console.log(`[GATEIO API] Primeiros 5: ${usdtPairs.slice(0, 5).join(', ')}`);
-                return usdtPairs;
-            }
+            console.log(`[GATEIO API] ✅ Usando lista pré-definida: ${predefinedPairs.length} pares`);
+            console.log(`[GATEIO API] Primeiros 5: ${predefinedPairs.slice(0, 5).join(', ')}`);
             
-            throw new Error('Formato de resposta inválido');
+            return predefinedPairs;
         } catch (error) {
-            console.error('[GATEIO API] Erro ao buscar símbolos:', error);
-            console.log('[GATEIO API] Usando lista de fallback...');
+            console.error('[GATEIO API] Erro ao obter símbolos:', error);
             return [
                 'BTC_USDT',
                 'ETH_USDT',
@@ -143,11 +143,6 @@ export class GateioConnector implements ExchangeConnector {
 
     private subscribeToSpotSymbols() {
         console.log(`[GATEIO SUB] Iniciando subscrições SPOT para ${this.symbols.length} símbolos`);
-        
-        // Usar TODOS os símbolos da lista dinâmica (não filtrar)
-        console.log(`[GATEIO SUB] Usando lista dinâmica completa: ${this.symbols.length} símbolos`);
-        console.log(`[GATEIO SUB] Primeiros 10: ${this.symbols.slice(0, 10).join(', ')}`);
-        console.log(`[GATEIO SUB] Últimos 5: ${this.symbols.slice(-5).join(', ')}`);
         
         this.symbols.forEach((symbol, index) => {
             if (this.ws?.readyState === WebSocket.OPEN) {
