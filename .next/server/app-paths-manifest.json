@@ -1,5 +1,1 @@
-{
-  "/dashboard/page": "app/dashboard/page.js",
-  "/arbitragem/page": "app/arbitragem/page.js",
-  "/api/init-data-simple/route": "app/api/init-data-simple/route.js"
-}
+{}

@@ -53,7 +53,7 @@ export class MexcFuturesConnector {
             if (this.ws && this.isConnected) {
                 try {
                     const pingMessage = { "method": "ping" };
-                    this.ws.send(JSON.stringify(pingMessage));
+                    this.ws!.send(JSON.stringify(pingMessage));
                 } catch (error) {
                     console.error(`[${this.identifier}] Erro ao enviar ping:`, error);
                     this.handleDisconnect('Erro ao enviar ping');
@@ -79,12 +79,12 @@ export class MexcFuturesConnector {
         
         if (this.ws) {
             try {
-                this.ws.removeAllListeners();
-                if (this.ws.readyState === WebSocket.OPEN) {
-                    this.ws.close();
-                } else {
-                    this.ws.terminate();
-                }
+                            this.ws!.removeAllListeners();
+            if (this.ws!.readyState === WebSocket.OPEN) {
+                this.ws!.close();
+            } else {
+                this.ws!.terminate();
+            }
                 this.ws = null;
             } catch (error) {
                 console.error(`[${this.identifier}] Erro ao limpar conexão:`, error);
@@ -256,7 +256,7 @@ export class MexcFuturesConnector {
                                 param: { symbol: symbol }
                             };
 
-                            this.ws.send(JSON.stringify(subscribeMessage));
+                            this.ws!.send(JSON.stringify(subscribeMessage));
                         });
                         
                         console.log(`[${this.identifier}] Lote ${Math.floor(i/batchSize) + 1}: ${batch.length} símbolos enviados`);
