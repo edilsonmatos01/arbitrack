@@ -1,1 +1,10 @@
-{}
+{
+  "/page": "app/page.js",
+  "/api/config/manual-balances/route": "app/api/config/manual-balances/route.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/api/operation-history/route": "app/api/operation-history/route.js",
+  "/api/config/api-keys/route": "app/api/config/api-keys/route.js",
+  "/arbitragem/page": "app/arbitragem/page.js",
+  "/api/positions/route": "app/api/positions/route.js",
+  "/api/init-data-simple/route": "app/api/init-data-simple/route.js"
+}
