@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Teste WebSocket</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        .log { background-color: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>Teste de Conexão WebSocket</h1>
+    <div id="status" class="status connecting">🔄 Conectando...</div>
+    <button onclick="connect()">Conectar</button>
+    <button onclick="disconnect()">Desconectar</button>
+    <div id="log" class="log"></div>
+
+    <script>
+        let ws = null;
+        const status = document.getElementById('status');
+        const log = document.getElementById('log');
+
+        function logMessage(message, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.innerHTML = `[${time}] ${message}`;
+            div.style.color = type === 'error' ? 'red' : type === 'success' ? 'green' : 'black';
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                logMessage('Já conectado!', 'error');
+                return;
+            }
+
+            logMessage('Tentando conectar ao WebSocket...', 'info');
+            status.textContent = '🔄 Conectando...';
+            status.className = 'status connecting';
+
+            // Tentar diferentes URLs
+            const urls = [
+                'ws://localhost:10000',
+                'wss://arbitrage-worker.onrender.com'
+            ];
+
+            let currentUrlIndex = 0;
+
+            function tryConnect() {
+                if (currentUrlIndex >= urls.length) {
+                    logMessage('Todas as URLs falharam!', 'error');
+                    status.textContent = '❌ Falha na conexão';
+                    status.className = 'status error';
+                    return;
+                }
+
+                const url = urls[currentUrlIndex];
+                logMessage(`Tentando: ${url}`, 'info');
+
+                ws = new WebSocket(url);
+
+                ws.onopen = function() {
+                    logMessage(`✅ Conectado com sucesso em: ${url}`, 'success');
+                    status.textContent = '✅ Conectado';
+                    status.className = 'status connected';
+                    
+                    // Enviar mensagem de identificação
+                    ws.send(JSON.stringify({
+                        type: 'client-connect',
+                        client: 'test-app',
+                        timestamp: Date.now()
+                    }));
+                };
+
+                ws.onmessage = function(event) {
+                    try {
+                        const message = JSON.parse(event.data);
+                        logMessage(`📨 Mensagem recebida: ${JSON.stringify(message, null, 2)}`, 'success');
+                    } catch (error) {
+                        logMessage(`📨 Mensagem recebida (raw): ${event.data}`, 'info');
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    logMessage(`❌ Erro na conexão: ${error}`, 'error');
+                };
+
+                ws.onclose = function(event) {
+                    logMessage(`🔌 Conexão fechada: ${event.code} - ${event.reason}`, 'error');
+                    status.textContent = '❌ Desconectado';
+                    status.className = 'status error';
+                    
+                    // Tentar próxima URL se esta falhou
+                    if (event.code !== 1000) {
+                        currentUrlIndex++;
+                        setTimeout(tryConnect, 2000);
+                    }
+                };
+            }
+
+            tryConnect();
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close(1000, 'Desconexão manual');
+                logMessage('Desconectando...', 'info');
+            }
+        }
+
+        // Conectar automaticamente ao carregar a página
+        window.onload = function() {
+            connect();
+        };
+    </script>
+</body>
+</html> 

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Conexão WebSocket</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { background-color: #2d5a2d; }
+        .error { background-color: #5a2d2d; }
+        .info { background-color: #2d2d5a; }
+        .log {
+            background-color: #2a2a2a;
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Teste de Conexão WebSocket - Frontend</h1>
+    
+    <div id="status" class="status info">Aguardando conexão...</div>
+    
+    <button onclick="connect()">Conectar</button>
+    <button onclick="disconnect()">Desconectar</button>
+    <button onclick="clearLog()">Limpar Log</button>
+    
+    <h3>Log de Mensagens:</h3>
+    <div id="log" class="log"></div>
+
+    <script>
+        let ws = null;
+        let messageCount = 0;
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.style.color = type === 'error' ? '#ff6b6b' : type === 'success' ? '#51cf66' : '#ffffff';
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('❌ WebSocket já está conectado', 'error');
+                return;
+            }
+            
+            // URL do worker na Render
+            const wsURL = 'wss://robo-de-arbitragem-tracker.onrender.com';
+            
+            log(`🔌 Tentando conectar ao WebSocket: ${wsURL}`, 'info');
+            updateStatus('Conectando...', 'info');
+            
+            try {
+                ws = new WebSocket(wsURL);
+                
+                ws.onopen = () => {
+                    log('✅ Conexão WebSocket estabelecida com sucesso!', 'success');
+                    updateStatus('Conectado', 'success');
+                    
+                    // Enviar mensagem de identificação
+                    ws.send(JSON.stringify({
+                        type: 'client-connect',
+                        client: 'test-frontend',
+                        timestamp: Date.now()
+                    }));
+                    
+                    log('📤 Mensagem de identificação enviada', 'info');
+                };
+                
+                ws.onmessage = (event) => {
+                    messageCount++;
+                    try {
+                        const message = JSON.parse(event.data);
+                        log(`📨 Mensagem #${messageCount} recebida: ${message.type}`, 'success');
+                        
+                        if (message.type === 'connection') {
+                            log('✅ Worker respondeu com mensagem de conexão', 'success');
+                        } else if (message.type === 'price-update') {
+                            log(`💰 Price Update: ${message.symbol} ${message.marketType} - Ask: ${message.bestAsk}, Bid: ${message.bestBid}`, 'info');
+                        } else if (message.type === 'arbitrage') {
+                            log(`🎯 Arbitragem: ${message.baseSymbol} - Spread: ${message.profitPercentage.toFixed(4)}%`, 'success');
+                        }
+                    } catch (error) {
+                        log(`📨 Dados recebidos (não JSON): ${event.data}`, 'info');
+                    }
+                };
+                
+                ws.onclose = (event) => {
+                    log(`🔌 Conexão fechada. Código: ${event.code}, Razão: ${event.reason}`, 'error');
+                    updateStatus('Desconectado', 'error');
+                };
+                
+                ws.onerror = (error) => {
+                    log(`❌ Erro na conexão WebSocket: ${error.message || 'Erro desconhecido'}`, 'error');
+                    updateStatus('Erro na conexão', 'error');
+                };
+                
+            } catch (error) {
+                log(`❌ Erro ao criar conexão WebSocket: ${error.message}`, 'error');
+                updateStatus('Erro ao conectar', 'error');
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                log('🔌 Desconectando...', 'info');
+            } else {
+                log('❌ Nenhuma conexão ativa', 'error');
+            }
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            messageCount = 0;
+        }
+        
+        // Conectar automaticamente quando a página carregar
+        window.onload = () => {
+            log('🚀 Página carregada, iniciando teste...', 'info');
+            setTimeout(connect, 1000);
+        };
+    </script>
+</body>
+</html> 

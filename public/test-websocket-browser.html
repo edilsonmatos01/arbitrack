@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste WebSocket - Navegador</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+        .log-error { color: #dc3545; }
+        .log-success { color: #28a745; }
+        .log-info { color: #17a2b8; }
+        .log-warning { color: #ffc107; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Teste WebSocket - Navegador</h1>
+        
+        <div id="status" class="status disconnected">
+            Status: Desconectado
+        </div>
+        
+        <div>
+            <button id="connectBtn" onclick="connect()">Conectar</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Desconectar</button>
+            <button onclick="clearLog()">Limpar Log</button>
+        </div>
+        
+        <h3>Log de Eventos:</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 5000;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function updateStatus(status, className) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = `Status: ${status}`;
+            statusDiv.className = `status ${className}`;
+        }
+
+        function updateButtons(connected) {
+            document.getElementById('connectBtn').disabled = connected;
+            document.getElementById('disconnectBtn').disabled = !connected;
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Já conectado!', 'warning');
+                return;
+            }
+
+            log('🔌 Tentando conectar ao WebSocket...', 'info');
+            updateStatus('Conectando...', 'connecting');
+            updateButtons(false);
+
+            try {
+                // Usar a mesma lógica do hook
+                const hostname = window.location.hostname;
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsURL = `${protocol}//${hostname}:10000`;
+                
+                log(`🌐 URL do WebSocket: ${wsURL}`, 'info');
+                ws = new WebSocket(wsURL);
+
+                // Configurar timeout de conexão
+                const connectionTimeout = setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.CONNECTING) {
+                        log('⏰ Timeout na conexão WebSocket', 'error');
+                        ws.close();
+                    }
+                }, 10000);
+
+                ws.onopen = () => {
+                    log('✅ Conexão WebSocket estabelecida com sucesso!', 'success');
+                    clearTimeout(connectionTimeout);
+                    updateStatus('Conectado', 'connected');
+                    updateButtons(true);
+                    reconnectAttempts = 0;
+                    
+                    // Enviar mensagem de identificação
+                    ws.send(JSON.stringify({
+                        type: 'client-connect',
+                        client: 'arbitrage-app',
+                        timestamp: Date.now()
+                    }));
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        log(`📨 Mensagem recebida: ${JSON.stringify(message, null, 2)}`, 'info');
+                    } catch (error) {
+                        log(`📨 Mensagem raw: ${event.data}`, 'info');
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    log(`❌ Erro na conexão WebSocket: ${error}`, 'error');
+                    log(`Detalhes do erro: ${JSON.stringify({
+                        type: error.type,
+                        target: error.target,
+                        isTrusted: error.isTrusted
+                    })}`, 'error');
+                    clearTimeout(connectionTimeout);
+                };
+
+                ws.onclose = (event) => {
+                    log(`🔌 Conexão WebSocket fechada: ${event.code} ${event.reason}`, 'warning');
+                    clearTimeout(connectionTimeout);
+                    updateStatus('Desconectado', 'disconnected');
+                    updateButtons(false);
+                    
+                    // Não reconectar se foi fechado intencionalmente
+                    if (event.code === 1000 || event.code === 1001) {
+                        log('Conexão fechada intencionalmente, não reconectando', 'info');
+                        return;
+                    }
+                    
+                    // Tentar reconectar
+                    if (reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        log(`🔄 Tentando reconectar em 5 segundos... (tentativa ${reconnectAttempts}/${maxReconnectAttempts})`, 'warning');
+                        setTimeout(connect, reconnectDelay);
+                    } else {
+                        log('❌ Número máximo de tentativas de reconexão atingido', 'error');
+                    }
+                };
+
+            } catch (error) {
+                log(`❌ Erro ao criar conexão WebSocket: ${error}`, 'error');
+                updateStatus('Erro', 'disconnected');
+                updateButtons(false);
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                log('🔌 Fechando conexão...', 'info');
+                ws.close(1000, 'Fechamento intencional');
+                ws = null;
+            }
+        }
+
+        // Conectar automaticamente quando a página carregar
+        window.addEventListener('load', () => {
+            log('🚀 Página carregada, iniciando teste WebSocket...', 'info');
+            connect();
+        });
+
+        // Limpar conexão quando a página for fechada
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html> 

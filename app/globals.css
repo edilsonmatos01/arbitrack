@@ -1,0 +1,524 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 255, 255, 255;
+  --background-start-rgb: 28, 32, 36;
+  --background-end-rgb: 28, 32, 36;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-start-rgb));
+  /* Vamos usar as cores personalizadas definidas no tailwind.config.ts para melhor controle */
+  @apply bg-dark-bg text-gray-100;
+  /* Você pode adicionar estilos globais ao body aqui, se necessário */
+  /* Exemplo: background-color: #000; color: #fff; */
+}
+
+/* Melhorias visuais para cards - Estilo da imagem */
+@layer components {
+  .card-enhanced {
+    @apply bg-dark-card p-6 rounded-lg;
+    box-shadow: 
+      0 6px 12px -1px rgba(0, 0, 0, 0.4),
+      0 4px 8px -1px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(0, 196, 159, 0.15);
+  }
+
+  /* Efeito neon sutil para cards - sem hover */
+  .card-neon {
+    position: relative;
+    background: linear-gradient(135deg, #1c2024 0%, #1c2024 100%);
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .card-neon::before {
+    content: '';
+    position: absolute;
+    top: -25px;
+    left: -20px;
+    right: -20px;
+    bottom: -8px;
+    background: linear-gradient(180deg, 
+      rgba(0, 196, 159, 1) 0%, 
+      rgba(0, 196, 159, 0.9) 5%, 
+      rgba(0, 196, 159, 0.7) 15%, 
+      rgba(0, 196, 159, 0.5) 30%, 
+      rgba(0, 196, 159, 0.3) 50%, 
+      rgba(0, 196, 159, 0.15) 70%, 
+      rgba(0, 196, 159, 0.08) 85%, 
+      rgba(0, 196, 159, 0.02) 100%);
+    border-radius: 0.5rem;
+    z-index: -1;
+    opacity: 1;
+    box-shadow: 
+      0 0 30px rgba(0, 196, 159, 0.3),
+      0 0 60px rgba(0, 196, 159, 0.15);
+  }
+
+  /* Melhorias para botões - sem hover */
+  .btn-enhanced {
+    @apply transition-all duration-300 ease-in-out;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 
+      0 4px 8px rgba(0, 0, 0, 0.3),
+      0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Efeito de brilho sutil para elementos interativos - sem hover */
+  .glow-on-hover {
+    box-shadow: 
+      0 4px 8px rgba(0, 0, 0, 0.3),
+      0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Melhoria para métricas cards - sem hover */
+  .metric-card-enhanced {
+    @apply bg-dark-card p-6 rounded-lg shadow min-h-[120px] flex flex-col justify-between;
+    position: relative;
+    background: linear-gradient(135deg, #1c2024 0%, #1c2024 100%);
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    box-shadow: 
+      0 6px 12px -1px rgba(0, 0, 0, 0.4),
+      0 4px 8px -1px rgba(0, 0, 0, 0.3);
+  }
+
+  .metric-card-enhanced::before {
+    content: '';
+    position: absolute;
+    top: -30px;
+    left: -25px;
+    right: -25px;
+    bottom: -10px;
+    background: linear-gradient(180deg, 
+      rgba(0, 196, 159, 1) 0%, 
+      rgba(0, 196, 159, 0.95) 5%, 
+      rgba(0, 196, 159, 0.8) 15%, 
+      rgba(0, 196, 159, 0.6) 30%, 
+      rgba(0, 196, 159, 0.4) 50%, 
+      rgba(0, 196, 159, 0.25) 70%, 
+      rgba(0, 196, 159, 0.12) 85%, 
+      rgba(0, 196, 159, 0.03) 100%);
+    border-radius: 0.5rem;
+    z-index: -1;
+    opacity: 1;
+    box-shadow: 
+      0 0 35px rgba(0, 196, 159, 0.35),
+      0 0 70px rgba(0, 196, 159, 0.2);
+  }
+
+  /* Borda neon mais pronunciada para cards especiais - sem hover */
+  .card-neon-intense {
+    position: relative;
+    background: linear-gradient(135deg, #1c2024 0%, #1c2024 100%);
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .card-neon-intense::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    right: -5px;
+    bottom: -5px;
+    background: linear-gradient(135deg, 
+      rgba(0, 196, 159, 0.35) 0%, 
+      rgba(0, 196, 159, 0.2) 20%, 
+      rgba(0, 196, 159, 0.1) 40%, 
+      rgba(0, 196, 159, 0.08) 60%, 
+      rgba(0, 196, 159, 0.1) 80%, 
+      rgba(0, 196, 159, 0.2) 90%, 
+      rgba(0, 196, 159, 0.35) 100%);
+    border-radius: 0.5rem;
+    z-index: -1;
+    opacity: 1;
+    box-shadow: 
+      0 0 30px rgba(0, 196, 159, 0.2),
+      0 0 60px rgba(0, 196, 159, 0.1);
+  }
+
+  /* Estilos personalizados para elementos de formulário */
+  .form-input-enhanced {
+    @apply bg-dark-card border border-gray-600 text-white rounded-md p-3 transition-all duration-200;
+  }
+
+  .form-input-enhanced:focus {
+    @apply outline-none ring-2 ring-custom-cyan border-custom-cyan;
+    box-shadow: 
+      0 0 0 3px rgba(0, 196, 159, 0.1),
+      0 0 10px rgba(0, 196, 159, 0.2);
+  }
+
+  .form-input-enhanced:hover {
+    @apply border-custom-cyan/50;
+  }
+
+  /* Estilos para select personalizado */
+  .form-select-enhanced {
+    @apply bg-dark-card border border-gray-600 text-white rounded-md p-3 transition-all duration-200;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2300C49F' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+  }
+
+  /* Remover seta padrão do select */
+  .form-select-enhanced::-ms-expand {
+    display: none;
+  }
+
+  /* Estilos específicos para Firefox */
+  .form-select-enhanced:-moz-focusring {
+    color: transparent;
+    text-shadow: 0 0 0 #ffffff;
+  }
+
+  .form-select-enhanced:focus {
+    @apply outline-none ring-2 ring-custom-cyan border-custom-cyan;
+    box-shadow: 
+      0 0 0 3px rgba(0, 196, 159, 0.1),
+      0 0 10px rgba(0, 196, 159, 0.2);
+  }
+
+  .form-select-enhanced:hover {
+    @apply border-custom-cyan/50;
+  }
+
+  /* Estilos para hover do select quando aberto */
+  .form-select-enhanced:hover option {
+    @apply bg-dark-card text-white !important;
+    background-color: #1c2024 !important;
+    color: #ffffff !important;
+  }
+
+  .form-select-enhanced:hover option:hover {
+    @apply bg-custom-cyan/10 text-white !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  .form-select-enhanced:hover option:checked {
+    @apply bg-custom-cyan/20 text-custom-cyan !important;
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  /* Estilos para opções do select - com maior especificidade */
+  .form-select-enhanced option {
+    @apply bg-dark-card text-white !important;
+    background-color: #1c2024 !important;
+    color: #ffffff !important;
+  }
+
+  .form-select-enhanced option:checked {
+    @apply bg-custom-cyan/20 text-custom-cyan font-semibold !important;
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  .form-select-enhanced option:hover {
+    @apply bg-custom-cyan/10 text-white !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  /* Estilos para select quando aberto */
+  .form-select-enhanced:focus option:checked {
+    @apply bg-custom-cyan/20 text-custom-cyan !important;
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  .form-select-enhanced:focus option:hover {
+    @apply bg-custom-cyan/10 text-white !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  /* Estilos específicos para Firefox */
+  .form-select-enhanced option:-moz-focusring {
+    @apply bg-custom-cyan/10 text-white !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  /* Estilos específicos para Chrome/Safari */
+  .form-select-enhanced option:focus {
+    @apply bg-custom-cyan/10 text-white !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  /* Sobrescrever completamente para form-select-enhanced */
+  .form-select-enhanced option:hover,
+  .form-select-enhanced option:focus,
+  .form-select-enhanced option:active,
+  .form-select-enhanced option:checked {
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  .form-select-enhanced option:checked {
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  /* Estilos específicos para diferentes navegadores - form-select-enhanced */
+  .form-select-enhanced option::-moz-focus-inner {
+    border: 0 !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+  }
+
+  .form-select-enhanced option::-webkit-outer-spin-button,
+  .form-select-enhanced option::-webkit-inner-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+  }
+
+  /* Estilos de emergência para garantir que as cores sejam aplicadas */
+  select option:hover,
+  select option:focus,
+  select option:active {
+    background: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  select option:checked {
+    background: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  /* Estilos específicos para Chrome */
+  select option::-webkit-option {
+    background: #1c2024 !important;
+    color: #ffffff !important;
+  }
+
+  select option::-webkit-option:hover {
+    background: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  select option::-webkit-option:checked {
+    background: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  /* Estilos globais para todos os selects */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+  }
+
+  select::-ms-expand {
+    display: none;
+  }
+
+  /* Estilos para opções globais - com maior especificidade */
+  select option,
+  option {
+    @apply bg-dark-card text-white !important;
+    background-color: #1c2024 !important;
+    color: #ffffff !important;
+  }
+
+  select option:checked,
+  option:checked {
+    @apply bg-custom-cyan/20 text-custom-cyan !important;
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  select option:hover,
+  option:hover {
+    @apply bg-custom-cyan/10 text-white !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  /* Estilos específicos para Firefox */
+  select option:-moz-focusring,
+  option:-moz-focusring {
+    @apply bg-custom-cyan/10 text-white !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  /* Estilos específicos para Chrome/Safari */
+  select option:focus,
+  option:focus {
+    @apply bg-custom-cyan/10 text-white !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  /* Sobrescrever completamente as cores padrão do navegador */
+  select option:hover,
+  select option:focus,
+  select option:active,
+  select option:checked,
+  option:hover,
+  option:focus,
+  option:active,
+  option:checked {
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+    border: none !important;
+    outline: none !important;
+  }
+
+  select option:checked,
+  option:checked {
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  /* Estilos específicos para diferentes navegadores */
+  select option::-moz-focus-inner,
+  option::-moz-focus-inner {
+    border: 0 !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+  }
+
+  select option::-webkit-outer-spin-button,
+  select option::-webkit-inner-spin-button,
+  option::-webkit-outer-spin-button,
+  option::-webkit-inner-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+  }
+
+  /* Estilos para inputs de data */
+  .form-date-enhanced {
+    @apply bg-dark-card border border-gray-600 text-white rounded-md p-3 transition-all duration-200;
+  }
+
+  .form-date-enhanced:focus {
+    @apply outline-none ring-2 ring-custom-cyan border-custom-cyan;
+    box-shadow: 
+      0 0 0 3px rgba(0, 196, 159, 0.1),
+      0 0 10px rgba(0, 196, 159, 0.2);
+  }
+
+  .form-date-enhanced:hover {
+    @apply border-custom-cyan/50;
+  }
+
+  /* Estilos para inputs de número */
+  .form-number-enhanced {
+    @apply bg-dark-card border border-gray-600 text-white rounded-md p-3 transition-all duration-200;
+  }
+
+  .form-number-enhanced:focus {
+    @apply outline-none ring-2 ring-custom-cyan border-custom-cyan;
+    box-shadow: 
+      0 0 0 3px rgba(0, 196, 159, 0.1),
+      0 0 10px rgba(0, 196, 159, 0.2);
+  }
+
+  .form-number-enhanced:hover {
+    @apply border-custom-cyan/50;
+  }
+
+  /* Estilos para inputs de texto */
+  .form-text-enhanced {
+    @apply bg-dark-card border border-gray-600 text-white rounded-md p-3 transition-all duration-200;
+  }
+
+  .form-text-enhanced:focus {
+    @apply outline-none ring-2 ring-custom-cyan border-custom-cyan;
+    box-shadow: 
+      0 0 0 3px rgba(0, 196, 159, 0.1),
+      0 0 10px rgba(0, 196, 159, 0.2);
+  }
+
+  .form-text-enhanced:hover {
+    @apply border-custom-cyan/50;
+  }
+
+  /* Estilos para inputs desabilitados */
+  .form-input-disabled {
+    @apply bg-dark-card/50 border border-gray-600 text-gray-400 rounded-md p-3 cursor-not-allowed;
+  }
+
+  /* Estilos finais de emergência - máxima especificidade */
+  select option:hover,
+  select option:focus,
+  select option:active,
+  select option:checked,
+  .form-select-enhanced option:hover,
+  .form-select-enhanced option:focus,
+  .form-select-enhanced option:active,
+  .form-select-enhanced option:checked {
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  select option:checked,
+  .form-select-enhanced option:checked {
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+
+  /* Estilos ultra-específicos para eliminar azul */
+  select option:hover,
+  select option:focus,
+  select option:active,
+  select option:checked,
+  .form-select-enhanced option:hover,
+  .form-select-enhanced option:focus,
+  .form-select-enhanced option:active,
+  .form-select-enhanced option:checked,
+  select option:visited,
+  .form-select-enhanced option:visited {
+    background: rgba(0, 196, 159, 0.1) !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    -webkit-background-color: rgba(0, 196, 159, 0.1) !important;
+    -moz-background-color: rgba(0, 196, 159, 0.1) !important;
+  }
+
+  select option:checked,
+  .form-select-enhanced option:checked {
+    background: rgba(0, 196, 159, 0.2) !important;
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+    -webkit-background-color: rgba(0, 196, 159, 0.2) !important;
+    -moz-background-color: rgba(0, 196, 159, 0.2) !important;
+  }
+
+  /* Estilos específicos para Chrome */
+  select option::-webkit-option:hover,
+  .form-select-enhanced option::-webkit-option:hover {
+    background: rgba(0, 196, 159, 0.1) !important;
+    background-color: rgba(0, 196, 159, 0.1) !important;
+    color: #ffffff !important;
+  }
+
+  select option::-webkit-option:checked,
+  .form-select-enhanced option::-webkit-option:checked {
+    background: rgba(0, 196, 159, 0.2) !important;
+    background-color: rgba(0, 196, 159, 0.2) !important;
+    color: #00C49F !important;
+  }
+} 

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Oportunidades</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .loading { background: #fff3cd; color: #856404; }
+        .message {
+            background: #e9ecef;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        .opportunity {
+            background: #d1ecf1;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid #17a2b8;
+        }
+        .price-update {
+            background: #d4edda;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 4px solid #28a745;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            text-align: center;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Teste de Oportunidades de Arbitragem</h1>
+        
+        <div class="status" id="connectionStatus">🔄 Conectando...</div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="messagesCount">0</div>
+                <div>Mensagens Recebidas</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="priceUpdatesCount">0</div>
+                <div>Atualizações de Preço</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="opportunitiesCount">0</div>
+                <div>Oportunidades</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="lastUpdate">-</div>
+                <div>Última Atualização</div>
+            </div>
+        </div>
+        
+        <h2>📊 Últimas Mensagens</h2>
+        <div id="messagesContainer">
+            <div class="message">Aguardando mensagens...</div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messagesCount = 0;
+        let priceUpdatesCount = 0;
+        let opportunitiesCount = 0;
+        let messages = [];
+        
+        function connectWebSocket() {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.className = 'status loading';
+            statusEl.textContent = '🔄 Conectando...';
+            
+            ws = new WebSocket('ws://localhost:10000');
+            
+            ws.onopen = function() {
+                statusEl.className = 'status connected';
+                statusEl.textContent = '✅ Conectado ao servidor';
+                console.log('WebSocket conectado');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+            
+            ws.onclose = function() {
+                statusEl.className = 'status disconnected';
+                statusEl.textContent = '❌ Desconectado - Tentando reconectar...';
+                console.log('WebSocket desconectado');
+                setTimeout(connectWebSocket, 5000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error('Erro WebSocket:', error);
+                statusEl.className = 'status disconnected';
+                statusEl.textContent = '❌ Erro de Conexão';
+            };
+        }
+        
+        function handleMessage(data) {
+            messagesCount++;
+            updateStats();
+            
+            const timestamp = new Date().toLocaleTimeString();
+            let messageHtml = '';
+            
+            switch(data.type) {
+                case 'connection':
+                    messageHtml = `
+                        <div class="message">
+                            <strong>🔗 Conexão:</strong> ${data.message}<br>
+                            <small>${timestamp}</small>
+                        </div>
+                    `;
+                    break;
+                    
+                case 'price-update':
+                    priceUpdatesCount++;
+                    messageHtml = `
+                        <div class="price-update">
+                            <strong>💰 Preço:</strong> ${data.identifier} - ${data.symbol}<br>
+                            Ask: $${data.bestAsk?.toFixed(6) || 'N/A'}, Bid: $${data.bestBid?.toFixed(6) || 'N/A'}<br>
+                            <small>${timestamp}</small>
+                        </div>
+                    `;
+                    break;
+                    
+                case 'arbitrage':
+                    opportunitiesCount++;
+                    messageHtml = `
+                        <div class="opportunity">
+                            <strong>🎯 OPORTUNIDADE ENCONTRADA!</strong><br>
+                            Símbolo: ${data.baseSymbol}<br>
+                            Spread: ${data.profitPercentage?.toFixed(4) || 'N/A'}%<br>
+                            Comprar: ${data.buyAt?.exchange || 'N/A'} ${data.buyAt?.marketType || 'N/A'} @ $${data.buyAt?.price?.toFixed(6) || 'N/A'}<br>
+                            Vender: ${data.sellAt?.exchange || 'N/A'} ${data.sellAt?.marketType || 'N/A'} @ $${data.sellAt?.price?.toFixed(6) || 'N/A'}<br>
+                            <small>${timestamp}</small>
+                        </div>
+                    `;
+                    break;
+                    
+                default:
+                    messageHtml = `
+                        <div class="message">
+                            <strong>📨 Mensagem:</strong> ${JSON.stringify(data)}<br>
+                            <small>${timestamp}</small>
+                        </div>
+                    `;
+            }
+            
+            messages.unshift(messageHtml);
+            
+            // Manter apenas as últimas 20 mensagens
+            if (messages.length > 20) {
+                messages = messages.slice(0, 20);
+            }
+            
+            document.getElementById('messagesContainer').innerHTML = messages.join('');
+        }
+        
+        function updateStats() {
+            document.getElementById('messagesCount').textContent = messagesCount;
+            document.getElementById('priceUpdatesCount').textContent = priceUpdatesCount;
+            document.getElementById('opportunitiesCount').textContent = opportunitiesCount;
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+        }
+        
+        // Iniciar conexão
+        connectWebSocket();
+        
+        // Atualizar estatísticas a cada segundo
+        setInterval(updateStats, 1000);
+    </script>
+</body>
+</html> 

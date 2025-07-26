@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Arbitragem em Tempo Real</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin: 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .status {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .status-card {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 200px;
+            margin: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .status-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2em;
+        }
+        
+        .status-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #4ade80;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .panel {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .panel h2 {
+            margin: 0 0 20px 0;
+            text-align: center;
+            color: #fbbf24;
+        }
+        
+        .price-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .price-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255,255,255,0.05);
+            border-radius: 5px;
+            border-left: 4px solid #4ade80;
+        }
+        
+        .price-item .symbol {
+            font-weight: bold;
+            color: #fbbf24;
+        }
+        
+        .price-item .prices {
+            text-align: right;
+        }
+        
+        .price-item .ask {
+            color: #ef4444;
+        }
+        
+        .price-item .bid {
+            color: #22c55e;
+        }
+        
+        .opportunities {
+            grid-column: 1 / -1;
+        }
+        
+        .opportunity {
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            color: #1f2937;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 10px;
+            border-left: 6px solid #dc2626;
+            animation: pulse 2s infinite;
+        }
+        
+        .opportunity .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .opportunity .symbol {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        
+        .opportunity .spread {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #dc2626;
+        }
+        
+        .opportunity .details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 0.9em;
+        }
+        
+        .opportunity .buy, .opportunity .sell {
+            padding: 8px;
+            border-radius: 5px;
+            background: rgba(255,255,255,0.2);
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            z-index: 1000;
+        }
+        
+        .connected {
+            background: #22c55e;
+            color: white;
+        }
+        
+        .disconnected {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .loading {
+            background: #fbbf24;
+            color: #1f2937;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Monitor de Arbitragem em Tempo Real</h1>
+            <p>Gate.io Spot ↔ MEXC Futures</p>
+        </div>
+        
+        <div class="connection-status" id="connectionStatus">
+            🔄 Conectando...
+        </div>
+        
+        <div class="status">
+            <div class="status-card">
+                <h3>Clientes Conectados</h3>
+                <div class="value" id="clientsCount">0</div>
+            </div>
+            <div class="status-card">
+                <h3>Gate.io Symbols</h3>
+                <div class="value" id="gateioCount">0</div>
+            </div>
+            <div class="status-card">
+                <h3>MEXC Symbols</h3>
+                <div class="value" id="mexcCount">0</div>
+            </div>
+            <div class="status-card">
+                <h3>Oportunidades</h3>
+                <div class="value" id="opportunitiesCount">0</div>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="panel">
+                <h2>📊 Gate.io Spot</h2>
+                <div class="price-list" id="gateioPrices">
+                    <div style="text-align: center; padding: 20px; color: #9ca3af;">
+                        Aguardando dados...
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <h2>📈 MEXC Futures</h2>
+                <div class="price-list" id="mexcPrices">
+                    <div style="text-align: center; padding: 20px; color: #9ca3af;">
+                        Aguardando dados...
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel opportunities">
+            <h2>💰 Oportunidades de Arbitragem</h2>
+            <div id="opportunitiesList">
+                <div style="text-align: center; padding: 20px; color: #9ca3af;">
+                    Monitorando oportunidades...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let opportunities = [];
+        let gateioPrices = {};
+        let mexcPrices = {};
+        
+        function connectWebSocket() {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.className = 'connection-status loading';
+            statusEl.textContent = '🔄 Conectando...';
+            
+            ws = new WebSocket('ws://localhost:10000');
+            
+            ws.onopen = function() {
+                statusEl.className = 'connection-status connected';
+                statusEl.textContent = '✅ Conectado';
+                console.log('WebSocket conectado');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+            
+            ws.onclose = function() {
+                statusEl.className = 'connection-status disconnected';
+                statusEl.textContent = '❌ Desconectado';
+                console.log('WebSocket desconectado');
+                
+                // Tentar reconectar em 5 segundos
+                setTimeout(connectWebSocket, 5000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error('Erro WebSocket:', error);
+                statusEl.className = 'connection-status disconnected';
+                statusEl.textContent = '❌ Erro de Conexão';
+            };
+        }
+        
+        function handleMessage(data) {
+            switch(data.type) {
+                case 'connection':
+                    console.log('Conectado ao servidor:', data.message);
+                    break;
+                    
+                case 'price-update':
+                    handlePriceUpdate(data);
+                    break;
+                    
+                case 'arbitrage':
+                    handleArbitrageOpportunity(data);
+                    break;
+            }
+        }
+        
+        function handlePriceUpdate(data) {
+            const { identifier, symbol, bestAsk, bestBid } = data;
+            
+            if (identifier === 'gateio') {
+                gateioPrices[symbol] = { bestAsk, bestBid, timestamp: Date.now() };
+                updateGateioPrices();
+            } else if (identifier === 'mexc') {
+                mexcPrices[symbol] = { bestAsk, bestBid, timestamp: Date.now() };
+                updateMexcPrices();
+            }
+            
+            updateCounts();
+        }
+        
+        function handleArbitrageOpportunity(data) {
+            console.log('🎯 Oportunidade recebida:', data);
+            
+            const opportunity = {
+                id: Date.now(),
+                symbol: data.baseSymbol,
+                spread: data.profitPercentage,
+                buyAt: data.buyAt,
+                sellAt: data.sellAt,
+                arbitrageType: data.arbitrageType,
+                timestamp: data.timestamp
+            };
+            
+            opportunities.unshift(opportunity);
+            
+            // Manter apenas as últimas 20 oportunidades
+            if (opportunities.length > 20) {
+                opportunities = opportunities.slice(0, 20);
+            }
+            
+            updateOpportunities();
+            updateCounts();
+            
+            // Log para debug
+            console.log(`💰 Oportunidade adicionada: ${data.baseSymbol} - ${data.profitPercentage?.toFixed(4)}%`);
+        }
+        
+        function updateGateioPrices() {
+            const container = document.getElementById('gateioPrices');
+            const symbols = Object.keys(gateioPrices).sort();
+            
+            if (symbols.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 20px; color: #9ca3af;">Aguardando dados...</div>';
+                return;
+            }
+            
+            container.innerHTML = symbols.map(symbol => {
+                const price = gateioPrices[symbol];
+                return `
+                    <div class="price-item">
+                        <div class="symbol">${symbol}</div>
+                        <div class="prices">
+                            <div class="ask">Ask: $${price.bestAsk.toFixed(4)}</div>
+                            <div class="bid">Bid: $${price.bestBid.toFixed(4)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function updateMexcPrices() {
+            const container = document.getElementById('mexcPrices');
+            const symbols = Object.keys(mexcPrices).sort();
+            
+            if (symbols.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 20px; color: #9ca3af;">Aguardando dados...</div>';
+                return;
+            }
+            
+            container.innerHTML = symbols.map(symbol => {
+                const price = mexcPrices[symbol];
+                return `
+                    <div class="price-item">
+                        <div class="symbol">${symbol}</div>
+                        <div class="prices">
+                            <div class="ask">Ask: $${price.bestAsk.toFixed(4)}</div>
+                            <div class="bid">Bid: $${price.bestBid.toFixed(4)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function updateOpportunities() {
+            const container = document.getElementById('opportunitiesList');
+            
+            if (opportunities.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 20px; color: #9ca3af;">Monitorando oportunidades...</div>';
+                return;
+            }
+            
+            container.innerHTML = opportunities.map(opp => `
+                <div class="opportunity">
+                    <div class="header">
+                        <div class="symbol">${opp.symbol}</div>
+                        <div class="spread">${opp.spread.toFixed(4)}%</div>
+                    </div>
+                    <div class="details">
+                        <div class="buy">
+                            <strong>Comprar:</strong> ${opp.buyAt.exchange} ${opp.buyAt.marketType}<br>
+                            Preço: $${opp.buyAt.price.toFixed(4)}
+                        </div>
+                        <div class="sell">
+                            <strong>Vender:</strong> ${opp.sellAt.exchange} ${opp.sellAt.marketType}<br>
+                            Preço: $${opp.sellAt.price.toFixed(4)}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function updateCounts() {
+            document.getElementById('clientsCount').textContent = '1'; // Sempre 1 cliente (este)
+            document.getElementById('gateioCount').textContent = Object.keys(gateioPrices).length;
+            document.getElementById('mexcCount').textContent = Object.keys(mexcPrices).length;
+            document.getElementById('opportunitiesCount').textContent = opportunities.length;
+        }
+        
+        // Iniciar conexão
+        connectWebSocket();
+        
+        // Atualizar contadores a cada segundo
+        setInterval(updateCounts, 1000);
+    </script>
+</body>
+</html> 
