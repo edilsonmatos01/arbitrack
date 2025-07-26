@@ -15,7 +15,7 @@ services:
   - type: web
     name: arbitragem-frontend
     env: node
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
