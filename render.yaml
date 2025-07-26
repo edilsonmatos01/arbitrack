@@ -13,7 +13,7 @@ databases:
 services:
   # Frontend Next.js
   - type: web
-    name: arbitrack-frontend
+    name: arbitragem-frontend
     env: node
     buildCommand: npm install && npm run build
     startCommand: npm start
@@ -23,12 +23,14 @@ services:
       - key: PORT
         value: 10000
       - key: NEXT_PUBLIC_WEBSOCKET_URL
-        value: wss://arbitrack-worker.onrender.com
+        value: wss://arbitrage-worker.onrender.com
+      - key: DATABASE_URL
+        value: postgresql://arbitragem_banco_bdx8_user:eSa4DBin3b19GI5DHmL9x11Xd4I329vT@dpg-d1i63eqdbo4c7387d210-a.oregon-postgres.render.com/arbitragem_banco_bdx8
     healthCheckPath: /health
 
   # Worker de Arbitragem (WebSocket Server)
   - type: web
-    name: arbitrack-worker
+    name: arbitrage-worker
     env: node
     buildCommand: npm install
     startCommand: node worker/background-worker-fixed.js
