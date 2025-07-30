@@ -38,7 +38,7 @@ services:
   name: arbitrage-worker
   env: node
   plan: free
-  buildCommand: npm install && npx prisma generate
+  buildCommand: npm install && npx prisma generate && node apply-migration-render.js
   startCommand: node worker/background-worker-render-fixed.js
   envVars:
     - key: DATABASE_URL
@@ -88,7 +88,7 @@ services:
   name: arbitragem-render
   env: node
   plan: free
-  buildCommand: npm install && npx prisma generate
+  buildCommand: npm install && npx prisma generate && node apply-migration-render.js
   startCommand: node worker/background-worker-render-fixed.js
   schedule: "*/5 * * * *"
   envVars:
