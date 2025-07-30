@@ -24,7 +24,7 @@ services:
         name: arbitragem-db
         property: connectionString
     - key: NEXT_PUBLIC_WEBSOCKET_URL
-      value: wss://robo-de-arbitragem-tracker.onrender.com
+      value: wss://robo-de-arbitragem.onrender.com
     - key: PORT
       value: 10000
     - key: HOSTNAME
