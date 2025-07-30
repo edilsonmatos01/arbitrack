@@ -1,0 +1,113 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SpreadHistory {
+  id           String   @id @default(cuid())
+  symbol       String
+  exchangeBuy  String
+  exchangeSell String
+  direction    String
+  spread       Float
+  spotPrice    Float    @default(0)
+  futuresPrice Float    @default(0)
+  timestamp    DateTime @default(now())
+
+  @@index([symbol, exchangeBuy, exchangeSell, direction])
+}
+
+model PriceHistory {
+  id                            String   @id @default(cuid())
+  symbol                        String
+  timestamp                     DateTime @default(now())
+  gateioSpotAsk                 Float
+  gateioSpotBid                 Float
+  mexcSpotAsk                   Float
+  mexcSpotBid                   Float
+  gateioFuturesAsk              Float
+  gateioFuturesBid              Float
+  mexcFuturesAsk                Float
+  mexcFuturesBid                Float
+  gateioSpotToMexcFuturesSpread Float
+  mexcSpotToGateioFuturesSpread Float
+
+  @@index([symbol, timestamp])
+}
+
+model TradableSymbol {
+  id                  String   @id @default(cuid())
+  baseSymbol          String   @unique
+  gateioSymbol        String
+  mexcSymbol          String
+  gateioFuturesSymbol String
+  mexcFuturesSymbol   String
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([baseSymbol])
+}
+
+model Position {
+  id              String   @id @default(cuid())
+  symbol          String
+  quantity        Float
+  spotEntry       Float
+  futuresEntry    Float
+  spotExchange    String
+  futuresExchange String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  isSimulated     Boolean  @default(false)
+
+  @@index([symbol])
+}
+
+model OperationHistory {
+  id                String   @id @default(cuid())
+  symbol            String
+  quantity          Float
+  spotEntryPrice    Float
+  futuresEntryPrice Float
+  spotExitPrice     Float
+  futuresExitPrice  Float
+  spotExchange      String
+  futuresExchange   String
+  profitLossUsd     Float
+  profitLossPercent Float
+  createdAt         DateTime @default(now())
+  finalizedAt       DateTime @default(now())
+
+  @@index([symbol, finalizedAt])
+}
+
+model ApiConfiguration {
+  id         String   @id @default(cuid())
+  exchange   String   @unique
+  apiKey     String
+  apiSecret  String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  passphrase String?
+
+  @@index([exchange])
+}
+
+model ManualBalance {
+  id          String   @id @default(cuid())
+  name        String
+  amount      Float
+  currency    String   @default("USDT")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}
