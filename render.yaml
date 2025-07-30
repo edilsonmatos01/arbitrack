@@ -36,7 +36,7 @@ services:
     - key: NODE_VERSION
       value: "18"
 
-- type: worker
+- type: web
   name: arbitrage-worker
   env: node
   plan: free
@@ -48,7 +48,7 @@ services:
         name: arbitragem-db
         property: connectionString
     - key: PORT
-      value: 8080
+      value: 10000
     - key: NODE_ENV
       value: production
     - key: HOSTNAME
