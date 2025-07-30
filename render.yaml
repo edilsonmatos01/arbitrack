@@ -41,7 +41,7 @@ services:
   env: node
   plan: free
   buildCommand: npm install && npm run build:worker
-  startCommand: node worker/background-worker-fixed.js
+  startCommand: node dist/worker/background-worker.js
   envVars:
     - key: DATABASE_URL
       fromDatabase:
@@ -95,7 +95,7 @@ services:
   env: node
   plan: free
   buildCommand: npm install && npm run build:worker
-  startCommand: node worker/background-worker-fixed.js
+  startCommand: node dist/worker/background-worker.js
   schedule: "*/5 * * * *"
   envVars:
     - key: DATABASE_URL
