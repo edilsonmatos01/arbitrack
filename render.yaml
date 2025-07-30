@@ -24,7 +24,7 @@ services:
         name: arbitragem-db
         property: connectionString
     - key: NEXT_PUBLIC_WEBSOCKET_URL
-      value: wss://robo-de-arbitragem.onrender.com
+      value: wss://arbitrage-worker.onrender.com
     - key: PORT
       value: 10000
     - key: HOSTNAME
@@ -55,6 +55,8 @@ services:
       value: 0.0.0.0
     - key: TZ
       value: America/Sao_Paulo
+    - key: NODE_VERSION
+      value: "18"
 
 - type: worker
   name: database-cleanup
