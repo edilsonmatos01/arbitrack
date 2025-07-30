@@ -74,8 +74,8 @@ const SUBSCRIPTION_MESSAGES = {
   })
 };
 
-// Função para obter pares negociáveis
-async function getTradablePairs() {
+// Função para obter pares negociáveis (CORRIGIDA: removido async)
+function getTradablePairs() {
   // Se houver símbolos carregados, gerar a lista dinâmica
   if (MEXC_USDT_SYMBOLS.length > 0) {
     return MEXC_USDT_SYMBOLS.map(symbol => ({
@@ -146,52 +146,76 @@ function processWebSocketMessage(exchange, message) {
   }
 }
 
-// Função para calcular oportunidades de arbitragem
+// Função para calcular oportunidades de arbitragem (CORRIGIDA: adicionadas verificações de segurança)
 function calculateArbitrageOpportunities() {
   const opportunities = [];
-  const pairs = getTradablePairs();
   
-  for (const pair of pairs) {
-    const gateioSpotPrice = priceData.gateio_spot[pair.gateioSymbol];
-    const mexcSpotPrice = priceData.mexc_spot[pair.mexcSymbol];
-    const gateioFuturesPrice = priceData.gateio_futures[pair.gateioFuturesSymbol];
-    const mexcFuturesPrice = priceData.mexc_futures[pair.mexcFuturesSymbol];
+  try {
+    const pairs = getTradablePairs();
     
-    // Verificar se temos preços válidos
-    if (gateioSpotPrice && mexcSpotPrice && gateioFuturesPrice && mexcFuturesPrice) {
-      // Calcular spreads
-      const spread1 = ((gateioFuturesPrice.price - mexcSpotPrice.price) / mexcSpotPrice.price) * 100;
-      const spread2 = ((mexcFuturesPrice.price - gateioSpotPrice.price) / gateioSpotPrice.price) * 100;
-      
-      // Verificar se o spread está dentro dos limites
-      if (Math.abs(spread1) >= MIN_SPREAD_THRESHOLD && Math.abs(spread1) <= MAX_SPREAD_THRESHOLD) {
-        opportunities.push({
-          baseSymbol: pair.baseSymbol,
-          buyAt: { exchange: 'MEXC', type: 'spot', price: mexcSpotPrice.price },
-          sellAt: { exchange: 'Gate.io', type: 'futures', price: gateioFuturesPrice.price },
-          profitPercentage: spread1,
-          timestamp: new Date()
-        });
+    // Verificar se pairs é um array válido
+    if (!Array.isArray(pairs)) {
+      console.error('[Worker] Erro: pairs não é um array válido:', typeof pairs);
+      return opportunities;
+    }
+    
+    for (const pair of pairs) {
+      // Verificar se pair tem as propriedades necessárias
+      if (!pair || !pair.gateioSymbol || !pair.mexcSymbol || !pair.gateioFuturesSymbol || !pair.mexcFuturesSymbol) {
+        console.warn('[Worker] Pair inválido ignorado:', pair);
+        continue;
       }
       
-      if (Math.abs(spread2) >= MIN_SPREAD_THRESHOLD && Math.abs(spread2) <= MAX_SPREAD_THRESHOLD) {
-        opportunities.push({
-          baseSymbol: pair.baseSymbol,
-          buyAt: { exchange: 'Gate.io', type: 'spot', price: gateioSpotPrice.price },
-          sellAt: { exchange: 'MEXC', type: 'futures', price: mexcFuturesPrice.price },
-          profitPercentage: spread2,
-          timestamp: new Date()
-        });
+      const gateioSpotPrice = priceData.gateio_spot[pair.gateioSymbol];
+      const mexcSpotPrice = priceData.mexc_spot[pair.mexcSymbol];
+      const gateioFuturesPrice = priceData.gateio_futures[pair.gateioFuturesSymbol];
+      const mexcFuturesPrice = priceData.mexc_futures[pair.mexcFuturesSymbol];
+      
+      // Verificar se temos preços válidos
+      if (gateioSpotPrice && mexcSpotPrice && gateioFuturesPrice && mexcFuturesPrice) {
+        // Calcular spreads
+        const spread1 = ((gateioFuturesPrice.price - mexcSpotPrice.price) / mexcSpotPrice.price) * 100;
+        const spread2 = ((mexcFuturesPrice.price - gateioSpotPrice.price) / gateioSpotPrice.price) * 100;
+        
+        // Verificar se o spread está dentro dos limites
+        if (Math.abs(spread1) >= MIN_SPREAD_THRESHOLD && Math.abs(spread1) <= MAX_SPREAD_THRESHOLD) {
+          opportunities.push({
+            baseSymbol: pair.baseSymbol,
+            buyAt: { exchange: 'MEXC', type: 'spot', price: mexcSpotPrice.price },
+            sellAt: { exchange: 'Gate.io', type: 'futures', price: gateioFuturesPrice.price },
+            profitPercentage: spread1,
+            timestamp: new Date()
+          });
+        }
+        
+        if (Math.abs(spread2) >= MIN_SPREAD_THRESHOLD && Math.abs(spread2) <= MAX_SPREAD_THRESHOLD) {
+          opportunities.push({
+            baseSymbol: pair.baseSymbol,
+            buyAt: { exchange: 'Gate.io', type: 'spot', price: gateioSpotPrice.price },
+            sellAt: { exchange: 'MEXC', type: 'futures', price: mexcFuturesPrice.price },
+            profitPercentage: spread2,
+            timestamp: new Date()
+          });
+        }
       }
     }
+  } catch (error) {
+    console.error('[Worker] Erro ao calcular oportunidades:', error);
   }
   
   return opportunities;
 }
 
-// Função para salvar oportunidades no banco
+// Função para salvar oportunidades no banco (MELHORADA: com retry logic)
 async function saveOpportunities(opportunities) {
-  if (!prisma) return;
+  if (!prisma) {
+    console.warn('[Worker] Prisma não inicializado, tentando reconectar...');
+    await initializePrisma();
+    if (!prisma) {
+      console.error('[Worker] Não foi possível conectar ao banco de dados');
+      return;
+    }
+  }
   
   try {
     for (const opportunity of opportunities) {
@@ -212,6 +236,14 @@ async function saveOpportunities(opportunities) {
     console.log(`[Worker] ${opportunities.length} oportunidades salvas no banco`);
   } catch (error) {
     console.error('[Worker] Erro ao salvar oportunidades:', error);
+    
+    // Tentar reconectar se for erro de conexão
+    if (error.message.includes('Server has closed the connection') || 
+        error.message.includes('Connection terminated') ||
+        error.message.includes('Connection timeout')) {
+      console.log('[Worker] Tentando reconectar ao banco...');
+      await initializePrisma();
+    }
   }
 }
 
@@ -247,20 +279,22 @@ async function createWebSocket(url, name) {
       ws.send(JSON.stringify(message));
     }
     
-    // Retornar objeto com WebSocket e função de subscribe
-    resolve({ ws, subscribe });
+    // Adicionar função subscribe ao objeto ws
+    ws.subscribe = subscribe;
+    resolve(ws);
   });
 }
 
 // Função para inicializar WebSockets
 async function initializeWebSockets() {
-  console.log('[Worker] Inicializando conexões WebSocket...');
-  
   try {
-    const pairs = await getTradablePairs();
-    const symbols = pairs.map(p => p.gateioSymbol).slice(0, 50); // Limitar a 50 símbolos
+    console.log('[Worker] Inicializando WebSockets...');
     
-    // Conectar aos exchanges
+    const pairs = getTradablePairs();
+    const symbols = pairs.map(pair => pair.gateioSymbol);
+    
+    console.log(`[Worker] Conectando a ${symbols.length} símbolos...`);
+    
     const gateioSpot = await createWebSocket(GATEIO_WS_URL, 'Gate.io Spot');
     const mexcSpot = await createWebSocket(MEXC_WS_URL, 'MEXC Spot');
     const gateioFutures = await createWebSocket(GATEIO_FUTURES_WS_URL, 'Gate.io Futures');
@@ -283,21 +317,43 @@ async function initializeWebSockets() {
   }
 }
 
-// Função para inicializar Prisma
+// Função para inicializar Prisma (MELHORADA: com retry logic)
 async function initializePrisma() {
   try {
-    prisma = new PrismaClient();
+    if (prisma) {
+      try {
+        await prisma.$disconnect();
+      } catch (e) {
+        console.warn('[Worker] Erro ao desconectar Prisma anterior:', e.message);
+      }
+    }
+    
+    prisma = new PrismaClient({
+      log: ['error', 'warn'],
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL
+        }
+      }
+    });
+    
     await prisma.$connect();
-    console.log('[Worker] Conexão com o banco de dados estabelecida');
+    console.log('[Worker] ✅ Conexão com o banco de dados estabelecida');
   } catch (error) {
-    console.error('[Worker] Erro ao conectar com banco:', error);
+    console.error('[Worker] ❌ Erro ao conectar com banco:', error);
+    prisma = null;
+    
+    // Tentar novamente após um intervalo
+    setTimeout(async () => {
+      console.log('[Worker] 🔄 Tentando reconectar ao banco...');
+      await initializePrisma();
+    }, DB_RETRY_INTERVAL);
   }
 }
 
-// Função principal de monitoramento
+// Função principal de monitoramento (MELHORADA: com verificações de segurança)
 async function monitorAndStore() {
   if (isWorkerRunning) {
-    console.log('[Worker] Monitoramento já está em execução');
     return;
   }
 
@@ -342,7 +398,11 @@ process.on('SIGTERM', async () => {
   isShuttingDown = true;
   
   if (prisma) {
-    await prisma.$disconnect();
+    try {
+      await prisma.$disconnect();
+    } catch (e) {
+      console.warn('[Worker] Erro ao desconectar Prisma:', e.message);
+    }
   }
   
   process.exit(0);
@@ -353,7 +413,11 @@ process.on('SIGINT', async () => {
   isShuttingDown = true;
   
   if (prisma) {
-    await prisma.$disconnect();
+    try {
+      await prisma.$disconnect();
+    } catch (e) {
+      console.warn('[Worker] Erro ao desconectar Prisma:', e.message);
+    }
   }
   
   process.exit(0);

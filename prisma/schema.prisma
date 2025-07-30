@@ -87,6 +87,21 @@ model OperationHistory {
   @@index([symbol, finalizedAt])
 }
 
+model ArbitrageOpportunity {
+  id              String   @id @default(cuid())
+  baseSymbol      String
+  buyExchange     String
+  buyType         String
+  buyPrice        Float
+  sellExchange    String
+  sellType        String
+  sellPrice       Float
+  profitPercentage Float
+  timestamp       DateTime @default(now())
+
+  @@index([baseSymbol, timestamp])
+}
+
 model ApiConfiguration {
   id         String   @id @default(cuid())
   exchange   String   @unique

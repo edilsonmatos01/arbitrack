@@ -42,7 +42,9 @@
     "start:simple": "node start-simple.js",
     "install:start": "node install-and-start.js",
     "diagnose": "node diagnose-system.js",
-    "setup:initial": "node setup-initial-config.js"
+    "setup:initial": "node setup-initial-config.js",
+    "test:worker": "node test-worker-local.js",
+    "test:db": "node test-database-connection.js"
   },
   "dependencies": {
     "@babel/core": "^7.27.4",
