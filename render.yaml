@@ -1,0 +1,110 @@
+# Exported from Render on 2025-06-10T21:42:54Z
+databases:
+- name: arbitragem-db
+  databaseName: arbitragem_banco
+  user: arbitragem_banco_user
+  plan: free
+  region: oregon
+  ipAllowList:
+  - source: 0.0.0.0/0
+    description: everywhere
+  postgresMajorVersion: "16"
+
+
+services:
+- type: web
+  name: robo-de-arbitragem
+  env: node
+  plan: free
+  buildCommand: npm install && npm run build
+  startCommand: npm start
+  envVars:
+    - key: DATABASE_URL
+      fromDatabase:
+        name: arbitragem-db
+        property: connectionString
+    - key: NEXT_PUBLIC_WEBSOCKET_URL
+      value: wss://robo-de-arbitragem-tracker.onrender.com
+    - key: PORT
+      value: 10000
+    - key: HOSTNAME
+      value: 0.0.0.0
+    - key: NODE_ENV
+      value: production
+    - key: TZ
+      value: America/Sao_Paulo
+    - key: NODE_VERSION
+      value: "18"
+
+- type: worker
+  name: arbitrage-worker
+  env: node
+  plan: free
+  buildCommand: npm install && npm run build:worker
+  startCommand: npm run start:worker
+  envVars:
+    - key: DATABASE_URL
+      fromDatabase:
+        name: arbitragem-db
+        property: connectionString
+    - key: PORT
+      value: 8080
+    - key: NODE_ENV
+      value: production
+    - key: HOSTNAME
+      value: 0.0.0.0
+    - key: TZ
+      value: America/Sao_Paulo
+
+- type: worker
+  name: database-cleanup
+  env: node
+  plan: free
+  buildCommand: npm install && npm run vacuum:build
+  startCommand: npm run vacuum:start
+  envVars:
+    - key: DATABASE_URL
+      fromDatabase:
+        name: arbitragem-db
+        property: connectionString
+    - key: NODE_ENV
+      value: production
+    - key: TZ
+      value: America/Sao_Paulo
+
+- type: web
+  name: robo-de-arbitragem-tracker
+  env: node
+  plan: free
+  buildCommand: npm install && npm run db:setup && npm run build:tracker
+  startCommand: npm run start:tracker
+  envVars:
+    - key: DATABASE_URL
+      fromDatabase:
+        name: arbitragem-db
+        property: connectionString
+    - key: PORT
+      value: 10000
+    - key: NODE_ENV
+      value: production
+    - key: TZ
+      value: America/Sao_Paulo
+
+- type: cron
+  name: arbitragem-render
+  env: node
+  plan: free
+  buildCommand: npm install && npm run build:worker
+  startCommand: npm run start:worker
+  schedule: "*/5 * * * *"
+  envVars:
+    - key: DATABASE_URL
+      fromDatabase:
+        name: arbitragem-db
+        property: connectionString
+    - key: NODE_ENV
+      value: production
+    - key: TZ
+      value: America/Sao_Paulo
+
+version: "1"
