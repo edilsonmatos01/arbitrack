@@ -23,7 +23,11 @@ let clients: CustomWebSocket[] = []; // Usamos o tipo estendido
 
 // ✅ Nova função centralizadora para lidar com todas as atualizações de preço
 function handlePriceUpdate(update: PriceUpdate) {
-    const { identifier, symbol, marketType, bestAsk, bestBid } = update;
+    const adjustedUpdate: PriceUpdate = {
+        ...update,
+        type: update.marketType as 'spot' | 'futures' // Garantir que o tipo seja 'spot' ou 'futures'
+    };
+    const { identifier, symbol, marketType, bestAsk, bestBid } = adjustedUpdate;
 
     // 1. Atualiza o estado central de preços
     if (!marketPrices[identifier]) {

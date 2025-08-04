@@ -122,6 +122,7 @@ var MexcConnector = /** @class */ (function (_super) {
             return;
         symbols.forEach(function (symbol) {
             var formattedSymbol = symbol.replace('/', '').toLowerCase();
+            console.log("[".concat(_this.marketIdentifier, "] Símbolo formatado para subscrição:"), formattedSymbol);
             var msg = { method: 'sub.ticker', param: { symbol: formattedSymbol } };
             console.log("[".concat(_this.marketIdentifier, "] Enviando subscri\u00E7\u00E3o:"), JSON.stringify(msg));
             ws.send(JSON.stringify(msg));

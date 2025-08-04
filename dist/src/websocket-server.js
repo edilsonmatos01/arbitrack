@@ -17,7 +17,8 @@ let marketPrices = {};
 let targetPairs = [];
 let clients = [];
 function handlePriceUpdate(update) {
-    const { identifier, symbol, marketType, bestAsk, bestBid } = update;
+    const adjustedUpdate = Object.assign(Object.assign({}, update), { type: update.marketType });
+    const { identifier, symbol, marketType, bestAsk, bestBid } = adjustedUpdate;
     if (!marketPrices[identifier]) {
         marketPrices[identifier] = {};
     }

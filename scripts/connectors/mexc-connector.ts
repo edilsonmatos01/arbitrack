@@ -1,12 +1,13 @@
 const WS = require('ws');
 import { EventEmitter } from 'events';
+import { PriceUpdate } from '../../src/types';
 
 const MEXC_SPOT_WS_URL = 'wss://wbs.mexc.com/ws';
 
 export class MexcConnector extends EventEmitter {
     private ws: any = null;
     private readonly marketIdentifier: string;
-    private readonly onPriceUpdate: (data: any) => void;
+    private readonly onPriceUpdate: (data: PriceUpdate) => void;
     private readonly onConnectedCallback: (() => void) | null;
     private isConnected: boolean = false;
     private isConnecting: boolean = false;
@@ -19,7 +20,7 @@ export class MexcConnector extends EventEmitter {
     private pendingSubscriptions: string[] = [];
     private lastPingTime: number = 0;
 
-    constructor(identifier: string, onPriceUpdate: (data: any) => void, onConnect: () => void) {
+    constructor(identifier: string, onPriceUpdate: (data: PriceUpdate) => void, onConnect: () => void) {
         super();
         this.marketIdentifier = identifier;
         this.onPriceUpdate = onPriceUpdate;
@@ -116,14 +117,17 @@ export class MexcConnector extends EventEmitter {
 
                         console.log(`[${this.marketIdentifier}] ✅ Dados recebidos: ${pair} - Ask: $${priceData.bestAsk}, Bid: $${priceData.bestBid}`);
 
-                        this.onPriceUpdate({
-                            type: 'price-update',
+                        // Certificar-se de que todas as propriedades estão presentes
+                        const priceUpdate: PriceUpdate = {
+                            identifier: this.marketIdentifier,
                             symbol: pair,
+                            type: 'spot', // ou 'futures', conforme necessário
                             marketType: 'spot',
                             bestAsk: priceData.bestAsk,
-                            bestBid: priceData.bestBid,
-                            identifier: this.marketIdentifier
-                        });
+                            bestBid: priceData.bestBid
+                        };
+
+                        this.onPriceUpdate(priceUpdate);
                     } else if (message.code !== undefined) {
                         console.log(`[${this.marketIdentifier}] Resposta da API:`, message);
                         if (message.code !== 0) {

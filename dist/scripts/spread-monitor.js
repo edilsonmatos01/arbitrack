@@ -17,10 +17,18 @@ const handlePriceUpdate = (data) => {
 const handleConnected = () => {
     console.log('Conexão estabelecida com sucesso');
 };
-const gateioSpot = new gateio_connector_1.GateIoConnector('GATEIO_SPOT', handlePriceUpdate);
-const mexcSpot = new mexc_connector_1.MexcConnector('MEXC_SPOT', handlePriceUpdate, handleConnected);
-const gateioFutures = new gateio_futures_connector_1.GateIoFuturesConnector('GATEIO_FUTURES', handlePriceUpdate, handleConnected);
-const mexcFutures = new mexc_futures_connector_1.MexcFuturesConnector('MEXC_FUTURES', handlePriceUpdate, handleConnected);
+const gateioSpot = new gateio_connector_1.GateIoConnector('GATEIO_SPOT', (data) => {
+    handlePriceUpdate(Object.assign(Object.assign({}, data), { type: 'spot', marketType: 'spot', identifier: 'GATEIO_SPOT' }));
+});
+const mexcSpot = new mexc_connector_1.MexcConnector('MEXC_SPOT', (data) => {
+    handlePriceUpdate(Object.assign(Object.assign({}, data), { type: 'spot', marketType: 'spot', identifier: 'MEXC_SPOT' }));
+}, handleConnected);
+const gateioFutures = new gateio_futures_connector_1.GateIoFuturesConnector('GATEIO_FUTURES', (data) => {
+    handlePriceUpdate(Object.assign(Object.assign({}, data), { type: 'futures', marketType: 'futures', identifier: 'GATEIO_FUTURES' }));
+}, handleConnected);
+const mexcFutures = new mexc_futures_connector_1.MexcFuturesConnector('MEXC_FUTURES', (data) => {
+    handlePriceUpdate(Object.assign(Object.assign({}, data), { type: 'futures', marketType: 'futures', identifier: 'MEXC_FUTURES' }));
+}, handleConnected);
 async function findCommonPairs() {
     try {
         console.log('Buscando pares negociáveis em todas as exchanges...');

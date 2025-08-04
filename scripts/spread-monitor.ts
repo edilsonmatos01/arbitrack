@@ -7,7 +7,10 @@ import { calculateSpread } from './utils';
 
 // Interfaces
 interface MarketPrice {
+  identifier: string;
   symbol: string;
+  type: 'spot' | 'futures';
+  marketType: 'spot' | 'futures';
   bestAsk: number;
   bestBid: number;
 }
@@ -31,10 +34,41 @@ const handleConnected = () => {
 };
 
 // Inicializa os conectores
-const gateioSpot = new GateIoConnector('GATEIO_SPOT', handlePriceUpdate);
-const mexcSpot = new MexcConnector('MEXC_SPOT', handlePriceUpdate, handleConnected);
-const gateioFutures = new GateIoFuturesConnector('GATEIO_FUTURES', handlePriceUpdate, handleConnected);
-const mexcFutures = new MexcFuturesConnector('MEXC_FUTURES', handlePriceUpdate, handleConnected);
+const gateioSpot = new GateIoConnector('GATEIO_SPOT', (data: MarketPrice) => {
+    handlePriceUpdate({
+        ...data,
+        type: 'spot',
+        marketType: 'spot',
+        identifier: 'GATEIO_SPOT'
+    });
+});
+
+const mexcSpot = new MexcConnector('MEXC_SPOT', (data: MarketPrice) => {
+    handlePriceUpdate({
+        ...data,
+        type: 'spot',
+        marketType: 'spot',
+        identifier: 'MEXC_SPOT'
+    });
+}, handleConnected);
+
+const gateioFutures = new GateIoFuturesConnector('GATEIO_FUTURES', (data: MarketPrice) => {
+    handlePriceUpdate({
+        ...data,
+        type: 'futures',
+        marketType: 'futures',
+        identifier: 'GATEIO_FUTURES'
+    });
+}, handleConnected);
+
+const mexcFutures = new MexcFuturesConnector('MEXC_FUTURES', (data: MarketPrice) => {
+    handlePriceUpdate({
+        ...data,
+        type: 'futures',
+        marketType: 'futures',
+        identifier: 'MEXC_FUTURES'
+    });
+}, handleConnected);
 
 async function findCommonPairs() {
   try {

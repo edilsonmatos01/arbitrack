@@ -1,19 +1,11 @@
 import WebSocket from 'ws';
 import fetch from 'node-fetch';
+import { PriceUpdate } from './types';
 
 interface MexcContract {
     symbol: string;
     quoteCoin: string;
     futureType: number;
-}
-
-interface PriceUpdate {
-    identifier: string;
-    symbol: string;
-    type: string;
-    marketType: string;
-    bestAsk: number;
-    bestBid: number;
 }
 
 interface CustomWebSocket extends WebSocket {

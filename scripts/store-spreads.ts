@@ -1,15 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { GateIoConnector } from './connectors/gateio-connector';
 import { MexcConnector } from './connectors/mexc-connector';
-
-// Interfaces
-interface PriceUpdate {
-  identifier: string;
-  symbol: string;
-  marketType: string;
-  bestAsk: number;
-  bestBid: number;
-}
+import { PriceUpdate } from '../src/types';
 
 // Inicializa o cliente Prisma
 const prisma = new PrismaClient({
@@ -39,19 +31,23 @@ let isRunning = false;
 
 // Função para processar atualizações de preço
 function handlePriceUpdate(data: PriceUpdate) {
-  const { identifier, symbol, bestAsk, bestBid } = data;
-  
-  if (!latestPrices[symbol]) {
-    latestPrices[symbol] = {};
-  }
+    const { identifier, symbol, bestAsk, bestBid, type } = data;
+    const adjustedData: PriceUpdate = {
+        ...data,
+        type: type || 'spot' // ou 'futures', conforme necessário
+    };
 
-  if (identifier === 'GATEIO_SPOT') {
-    latestPrices[symbol].spot = { bestAsk, bestBid };
-  } else if (identifier === 'MEXC_FUTURES') {
-    latestPrices[symbol].futures = { bestAsk, bestBid };
-  }
+    if (!latestPrices[symbol]) {
+        latestPrices[symbol] = {};
+    }
 
-  console.log(`[${new Date().toISOString()}] Atualização de preço - ${symbol} ${identifier}: Ask=${bestAsk}, Bid=${bestBid}`);
+    if (identifier === 'GATEIO_SPOT') {
+        latestPrices[symbol].spot = { bestAsk, bestBid };
+    } else if (identifier === 'MEXC_FUTURES') {
+        latestPrices[symbol].futures = { bestAsk, bestBid };
+    }
+
+    console.log(`[${new Date().toISOString()}] Atualização de preço - ${symbol} ${identifier}: Ask=${bestAsk}, Bid=${bestBid}`);
 }
 
 // Função para manipular conexão estabelecida
@@ -73,8 +69,19 @@ async function storeSpreadData() {
     Object.keys(latestPrices).forEach(key => delete latestPrices[key]);
 
     // Inicializa os conectores
-    const gateio = new GateIoConnector('GATEIO_SPOT', handlePriceUpdate);
-    const mexc = new MexcConnector('MEXC_FUTURES', handlePriceUpdate, handleConnected);
+    const gateio = new GateIoConnector('GATEIO_SPOT', (data: PriceUpdate) => {
+        handlePriceUpdate({
+            ...data,
+            type: data.type || 'spot' // ou 'futures', conforme necessário
+        });
+    });
+
+    const mexc = new MexcConnector('MEXC_FUTURES', (data: PriceUpdate) => {
+        handlePriceUpdate({
+            ...data,
+            type: data.type || 'futures' // ou 'spot', conforme necessário
+        });
+    }, handleConnected);
 
     // Conecta aos WebSockets
     gateio.connect(TRADING_PAIRS);

@@ -17,7 +17,8 @@ const TRADING_PAIRS = [
 const latestPrices = {};
 let isRunning = false;
 function handlePriceUpdate(data) {
-    const { identifier, symbol, bestAsk, bestBid } = data;
+    const { identifier, symbol, bestAsk, bestBid, type } = data;
+    const adjustedData = Object.assign(Object.assign({}, data), { type: type || 'spot' });
     if (!latestPrices[symbol]) {
         latestPrices[symbol] = {};
     }
@@ -41,8 +42,12 @@ async function storeSpreadData() {
         isRunning = true;
         console.log(`[${new Date().toISOString()}] Iniciando coleta de dados de spread...`);
         Object.keys(latestPrices).forEach(key => delete latestPrices[key]);
-        const gateio = new gateio_connector_1.GateIoConnector('GATEIO_SPOT', handlePriceUpdate);
-        const mexc = new mexc_connector_1.MexcConnector('MEXC_FUTURES', handlePriceUpdate, handleConnected);
+        const gateio = new gateio_connector_1.GateIoConnector('GATEIO_SPOT', (data) => {
+            handlePriceUpdate(Object.assign(Object.assign({}, data), { type: data.type || 'spot' }));
+        });
+        const mexc = new mexc_connector_1.MexcConnector('MEXC_FUTURES', (data) => {
+            handlePriceUpdate(Object.assign(Object.assign({}, data), { type: data.type || 'futures' }));
+        }, handleConnected);
         gateio.connect(TRADING_PAIRS);
         mexc.connect();
         mexc.subscribe(TRADING_PAIRS);

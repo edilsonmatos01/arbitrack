@@ -95,14 +95,15 @@ class MexcConnector extends events_1.EventEmitter {
                             return;
                         }
                         console.log(`[${this.marketIdentifier}] ✅ Dados recebidos: ${pair} - Ask: $${priceData.bestAsk}, Bid: $${priceData.bestBid}`);
-                        this.onPriceUpdate({
-                            type: 'price-update',
+                        const priceUpdate = {
+                            identifier: this.marketIdentifier,
                             symbol: pair,
+                            type: 'spot',
                             marketType: 'spot',
                             bestAsk: priceData.bestAsk,
-                            bestBid: priceData.bestBid,
-                            identifier: this.marketIdentifier
-                        });
+                            bestBid: priceData.bestBid
+                        };
+                        this.onPriceUpdate(priceUpdate);
                     }
                     else if (message.code !== undefined) {
                         console.log(`[${this.marketIdentifier}] Resposta da API:`, message);

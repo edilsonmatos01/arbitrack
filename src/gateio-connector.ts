@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import fetch from 'node-fetch';
+import { PriceUpdate } from './types';
 
 interface GateioSpotSymbol {
     id: string;
@@ -13,15 +14,6 @@ interface GateioSpotSymbol {
     trade_status: string;
     sell_start: number;
     buy_start: number;
-}
-
-interface PriceUpdate {
-    identifier: string;
-    symbol: string;
-    type: string;
-    marketType: string;
-    bestAsk: number;
-    bestBid: number;
 }
 
 interface CustomWebSocket extends WebSocket {
